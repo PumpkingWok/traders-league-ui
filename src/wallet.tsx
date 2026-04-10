@@ -14,9 +14,49 @@ import {
 } from '@rainbow-me/rainbowkit/wallets';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactNode, useState } from 'react';
-import { http } from 'viem';
+import { defineChain, http } from 'viem';
 import { WagmiProvider } from 'wagmi';
-import { arbitrum, base, mainnet, optimism, polygon } from 'wagmi/chains';
+
+export const hyperliquidEvmChain = defineChain({
+  id: 999,
+  name: 'Hyperliquid EVM',
+  nativeCurrency: {
+    name: 'HYPE',
+    symbol: 'HYPE',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: { http: ['https://rpc.hyperliquid.xyz/evm'] },
+  },
+  blockExplorers: {
+    default: {
+      name: 'HyperEVMScan',
+      url: 'https://hyperevmscan.io',
+    },
+  },
+});
+
+export const hyperliquidTestnetChain = defineChain({
+  id: 998,
+  name: 'Hyperliquid Testnet',
+  nativeCurrency: {
+    name: 'HYPE',
+    symbol: 'HYPE',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: { http: ['https://rpc.hyperliquid-testnet.xyz/evm'] },
+  },
+  blockExplorers: {
+    default: {
+      name: 'HyperEVMScan Testnet',
+      url: 'https://testnet.hyperevmscan.io',
+    },
+  },
+  testnet: true,
+});
+
+export const supportedChains = [hyperliquidEvmChain, hyperliquidTestnetChain] as const;
 
 const walletConnectProjectId =
   import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? 'REPLACE_WITH_YOUR_PROJECT_ID';
@@ -25,13 +65,10 @@ const config = getDefaultConfig({
   appName: 'Traders League',
   appDescription: 'Multichain virtual trading battles',
   appUrl: 'https://tradersleague.local',
-  chains: [mainnet, polygon, arbitrum, optimism, base],
+  chains: [...supportedChains],
   transports: {
-    [mainnet.id]: http(),
-    [polygon.id]: http(),
-    [arbitrum.id]: http(),
-    [optimism.id]: http(),
-    [base.id]: http(),
+    [hyperliquidEvmChain.id]: http(),
+    [hyperliquidTestnetChain.id]: http(),
   },
   wallets: [
     {

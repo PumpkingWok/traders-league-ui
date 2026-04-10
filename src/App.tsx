@@ -1,12 +1,24 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { hasWalletConnectProjectId } from './wallet';
+import { formatUnits, parseUnits, type Address } from 'viem';
+import {
+  useAccount,
+  useChainId,
+  usePublicClient,
+  useReadContract,
+  useReadContracts,
+  useSwitchChain,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from 'wagmi';
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { hasWalletConnectProjectId, hyperliquidEvmChain, supportedChains } from './wallet';
 
 const stats = [
   { label: 'Open Matches', value: '12', icon: '📦' },
   { label: 'Live Matches', value: '6', icon: '⚔️' },
   { label: 'Completed Matches', value: '134', icon: '🏆' },
-  { label: 'Supported Chains', value: '4', icon: '🌐' },
+  { label: 'Supported Chains', value: String(supportedChains.length), icon: '🌐' },
 ];
 
 const assets = [
@@ -15,6 +27,101 @@ const assets = [
   { label: 'SOL', color: 'bg-emerald-500' },
   { label: 'MATIC', color: 'bg-fuchsia-500' },
 ];
+
+const hyperDuelContractAddress = '0xA1b2C3d4E5f60718293aBcDeF1234567890AbCdE' as Address;
+
+const assetTokenIds: Record<string, number> = {
+  BTC: 1,
+  ETH: 2,
+  SOL: 3,
+  MATIC: 4,
+};
+
+const hyperDuelAbi = [
+  {
+    type: 'function',
+    name: 'createMatch',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'tokensAllowed', type: 'uint32[]' },
+      { name: 'buyIn', type: 'uint256' },
+      { name: 'duration', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'createMatchAndJoin',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'tokensAllowed', type: 'uint32[]' },
+      { name: 'buyIn', type: 'uint256' },
+      { name: 'duration', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'askForMatch',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'playerToAsk', type: 'address' },
+      { name: 'tokensAllowed', type: 'uint32[]' },
+      { name: 'buyIn', type: 'uint256' },
+      { name: 'duration', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'matchId',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'buyInToken',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'matches',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [
+      { name: 'playerA', type: 'address' },
+      { name: 'playerB', type: 'address' },
+      { name: 'winner', type: 'address' },
+      { name: 'buyIn', type: 'uint256' },
+      { name: 'duration', type: 'uint256' },
+      { name: 'endTime', type: 'uint256' },
+      { name: 'status', type: 'uint8' },
+      { name: 'tokensAllowed', type: 'uint32[]' },
+    ],
+  },
+] as const;
+
+const erc20MetadataAbi = [
+  {
+    type: 'function',
+    name: 'symbol',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'string' }],
+  },
+  {
+    type: 'function',
+    name: 'decimals',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint8' }],
+  },
+] as const;
+
+const zeroAddress = '0x0000000000000000000000000000000000000000';
 
 const buyInRange = {
   min: 10,
@@ -27,14 +134,6 @@ const durationRange = {
   max: 72,
   step: 1,
 };
-
-const matches = [
-  { id: '#102', assets: 'BTC • ETH', buyIn: '25 USDC', duration: '1 Hour', players: '1/2', status: 'Open' },
-  { id: '#101', assets: 'SOL • MATIC', buyIn: '50 USDC', duration: '4 Hours', players: '1/2', status: 'Open' },
-  { id: '#100', assets: 'BTC • SOL', buyIn: '100 USDC', duration: '1 Day', players: '1/2', status: 'Open' },
-  { id: '#099', assets: 'ETH • SOL', buyIn: '10 USDC', duration: '1 Week', players: '1/2', status: 'Open' },
-  { id: '#098', assets: 'BTC • MATIC', buyIn: '25 USDC', duration: '1 Week', players: '1/2', status: 'Open' },
-];
 
 const howToPlaySteps = [
   {
@@ -69,6 +168,12 @@ type Match = {
 };
 
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { isConnected } = useAccount();
+  const chainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
+  const [hasAttemptedAutoSwitch, setHasAttemptedAutoSwitch] = useState(false);
   const [isCreateMatchModalOpen, setIsCreateMatchModalOpen] = useState(false);
   const [selectedBuyIn, setSelectedBuyIn] = useState(25);
   const [selectedDurationHours, setSelectedDurationHours] = useState(4);
@@ -88,188 +193,74 @@ export default function App() {
     });
   };
 
+  const openCreateMatchFromHome = () => {
+    setIsCreateMatchModalOpen(true);
+    navigate('/matches');
+  };
+
+  const navigateToHowToPlay = () => {
+    if (location.pathname !== '/') {
+      navigate('/', { state: { scrollToHowToPlay: true } });
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      document.getElementById('how-to-play')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  useEffect(() => {
+    const routeState = location.state as { scrollToHowToPlay?: boolean } | null;
+    if (!routeState?.scrollToHowToPlay) return;
+
+    requestAnimationFrame(() => {
+      document.getElementById('how-to-play')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
+
+  useEffect(() => {
+    if (!isConnected) {
+      setHasAttemptedAutoSwitch(false);
+      return;
+    }
+
+    if (hasAttemptedAutoSwitch || chainId === hyperliquidEvmChain.id) {
+      return;
+    }
+
+    setHasAttemptedAutoSwitch(true);
+    void switchChainAsync({ chainId: hyperliquidEvmChain.id }).catch(() => undefined);
+  }, [chainId, hasAttemptedAutoSwitch, isConnected, switchChainAsync]);
+
   return (
     <div className="min-h-screen bg-[#1b2a7a] text-white overflow-x-hidden">
       <PixelBackground />
 
       <div className="relative z-10">
-        <Navbar />
+        <Navbar onNavigateToHowToPlay={navigateToHowToPlay} />
 
         <main className="mx-auto max-w-7xl px-4 pb-12 pt-6 md:px-6 lg:px-8">
-          <section className="grid grid-cols-1 gap-6 border-y-4 border-[#0f1645] bg-[#3f8cff]/20 px-4 py-8 shadow-[0_6px_0_0_#0f1645] md:grid-cols-[1.15fr_1fr] md:px-8">
-            <div className="space-y-5">
-              <div>
-                <h1 className="font-mono text-3xl font-black uppercase tracking-tight text-white md:text-5xl">
-                  Compete in 1v1 Trading Battles!
-                </h1>
-                <ul className="mt-5 space-y-2 font-mono text-base font-bold md:text-lg">
-                  <li>• Create a match</li>
-                  <li>• Set buy-in and duration</li>
-                  <li>• Trade virtual assets</li>
-                  <li>• Win the pot!</li>
-                </ul>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <PixelButton variant="gold" onClick={() => setIsCreateMatchModalOpen(true)}>
-                  Create Match
-                </PixelButton>
-                <a href="#matches">
-                  <PixelButton variant="blue">Browse Matches</PixelButton>
-                </a>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {stats.map((stat) => (
-                <PixelStatCard key={stat.label} icon={stat.icon} label={stat.label} value={stat.value} />
-              ))}
-            </div>
-          </section>
-
-          <section className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[380px_1fr]">
-            <PixelPanel title="Create a 1v1 Match">
-              <div className="space-y-5">
-                <div>
-                  <PanelLabel>Select Assets</PanelLabel>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {assets.map((asset) => (
-                      <PixelToggleChip
-                        key={asset.label}
-                        label={asset.label}
-                        dotClass={asset.color}
-                        active={selectedAssets.includes(asset.label)}
-                        onClick={() => toggleAsset(asset.label)}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <PanelLabel>Buy-in (USDC)</PanelLabel>
-                  <div className="mt-2">
-                    <PixelSlider
-                      min={buyInRange.min}
-                      max={buyInRange.max}
-                      step={buyInRange.step}
-                      value={selectedBuyIn}
-                      onChange={setSelectedBuyIn}
-                      valueLabel={`${selectedBuyIn} USDC`}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <PanelLabel>Duration</PanelLabel>
-                  <div className="mt-2">
-                    <PixelSlider
-                      min={durationRange.min}
-                      max={durationRange.max}
-                      step={durationRange.step}
-                      value={selectedDurationHours}
-                      onChange={setSelectedDurationHours}
-                      valueLabel={selectedDuration}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <PanelLabel>Match Type</PanelLabel>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <PixelSelectButton active>Public</PixelSelectButton>
-                    <PixelSelectButton>Private (Coming Soon)</PixelSelectButton>
-                  </div>
-                </div>
-
-                <p className="font-mono text-xs font-bold text-slate-300">
-                  You will deposit the buy-in when creating the match.
-                </p>
-
-                <div className="border-t-4 border-[#26315f] pt-4">
-                  <PanelLabel>Join by Match ID</PanelLabel>
-                  <div className="mt-2 flex gap-2">
-                    <PixelInput placeholder="Enter Match ID" />
-                    <PixelButton variant="blue" className="shrink-0">
-                      Join Match
-                    </PixelButton>
-                  </div>
-                </div>
-              </div>
-            </PixelPanel>
-
-            <div id="matches">
-              <PixelPanel title="Open 1v1 Matches">
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-wrap gap-2">
-                      <PixelDropdown label="All Assets" />
-                      <PixelDropdown label="All Buy-Ins" />
-                      <PixelDropdown label="All Durations" />
-                    </div>
-
-                    <div className="flex items-center gap-2 self-start lg:self-auto">
-                      <PixelTab active>Open</PixelTab>
-                      <PixelTab>Live</PixelTab>
-                      <PixelTab>Finished</PixelTab>
-                    </div>
-                  </div>
-
-                  <div className="overflow-hidden border-4 border-[#1b2346] bg-[#14204a] shadow-[0_5px_0_0_#0b1029]">
-                    <div className="hidden grid-cols-[120px_1.2fr_140px_140px_100px_120px_110px] gap-4 border-b-4 border-[#26315f] bg-[#1d2b5f] px-4 py-3 font-mono text-xs font-black uppercase text-slate-200 md:grid">
-                      <div>Match ID</div>
-                      <div>Assets</div>
-                      <div>Buy-In</div>
-                      <div>Duration</div>
-                      <div>Players</div>
-                      <div>Status</div>
-                      <div>Action</div>
-                    </div>
-
-                    <div className="divide-y-4 divide-[#26315f]">
-                      {matches.map((match) => (
-                        <MatchRow key={match.id} match={match} />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </PixelPanel>
-            </div>
-          </section>
-
-          <section id="how-to-play" className="mt-6">
-            <PixelPanel title="How to Play">
-              <div className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  {howToPlaySteps.map((step, index) => (
-                    <div
-                      key={step.title}
-                      className="border-4 border-[#26315f] bg-[#131d44] px-4 py-4 shadow-[0_4px_0_0_#162141]"
-                    >
-                      <div className="font-mono text-xs font-black uppercase text-[#ffbf3f]">
-                        Step {index + 1}
-                      </div>
-                      <h3 className="mt-2 font-mono text-xl font-black uppercase text-white">
-                        {step.title}
-                      </h3>
-                      <p className="mt-3 font-mono text-sm font-bold leading-6 text-slate-200">
-                        {step.description}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="border-4 border-[#4a261a] bg-[#6f3b1e] px-4 py-4 shadow-[0_5px_0_0_#3a1d14]">
-                  <div className="font-mono text-sm font-black uppercase text-[#ffefb0]">
-                    Win Condition
-                  </div>
-                  <p className="mt-2 font-mono text-sm font-bold leading-6 text-[#fff2cf]">
-                    Both players begin with 100K virtual USD. When the timer ends, the player with the
-                    highest portfolio value in virtual USD wins the match prize.
-                  </p>
-                </div>
-              </div>
-            </PixelPanel>
-          </section>
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <HomePage
+                  onOpenCreateMatch={openCreateMatchFromHome}
+                  onBrowseMatches={() => navigate('/matches')}
+                />
+              }
+            />
+            <Route
+              path="/matches"
+              element={
+                <MatchesPage
+                  onOpenCreateMatch={() => setIsCreateMatchModalOpen(true)}
+                />
+              }
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
       </div>
 
@@ -292,7 +283,358 @@ export default function App() {
   );
 }
 
-function Navbar() {
+function HomePage({
+  onOpenCreateMatch,
+  onBrowseMatches,
+}: {
+  onOpenCreateMatch: () => void;
+  onBrowseMatches: () => void;
+}) {
+  return (
+    <>
+      <section className="grid grid-cols-1 gap-6 border-y-4 border-[#0f1645] bg-[#3f8cff]/20 px-4 py-8 shadow-[0_6px_0_0_#0f1645] md:grid-cols-[1.15fr_1fr] md:px-8">
+        <div className="space-y-5">
+          <div>
+            <h1 className="font-mono text-3xl font-black uppercase tracking-tight text-white md:text-5xl">
+              Compete in 1v1 Trading Battles!
+            </h1>
+            <ul className="mt-5 space-y-2 font-mono text-base font-bold md:text-lg">
+              <li>• Create a match</li>
+              <li>• Set buy-in and duration</li>
+              <li>• Trade virtual assets</li>
+              <li>• Win the pot!</li>
+            </ul>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <PixelButton variant="gold" onClick={onOpenCreateMatch}>
+              Create Match
+            </PixelButton>
+            <PixelButton variant="blue" onClick={onBrowseMatches}>
+              Browse Matches
+            </PixelButton>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {stats.map((stat) => (
+            <PixelStatCard key={stat.label} icon={stat.icon} label={stat.label} value={stat.value} />
+          ))}
+        </div>
+      </section>
+
+      <section id="how-to-play" className="mt-6">
+        <PixelPanel title="How to Play">
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              {howToPlaySteps.map((step, index) => (
+                <div
+                  key={step.title}
+                  className="border-4 border-[#26315f] bg-[#131d44] px-4 py-4 shadow-[0_4px_0_0_#162141]"
+                >
+                  <div className="font-mono text-xs font-black uppercase text-[#ffbf3f]">
+                    Step {index + 1}
+                  </div>
+                  <h3 className="mt-2 font-mono text-xl font-black uppercase text-white">
+                    {step.title}
+                  </h3>
+                  <p className="mt-3 font-mono text-sm font-bold leading-6 text-slate-200">
+                    {step.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-4 border-[#4a261a] bg-[#6f3b1e] px-4 py-4 shadow-[0_5px_0_0_#3a1d14]">
+              <div className="font-mono text-sm font-black uppercase text-[#ffefb0]">
+                Win Condition
+              </div>
+              <p className="mt-2 font-mono text-sm font-bold leading-6 text-[#fff2cf]">
+                Both players begin with 100K virtual USD. When the timer ends, the player with the
+                highest portfolio value in virtual USD wins the match prize.
+              </p>
+            </div>
+          </div>
+        </PixelPanel>
+      </section>
+    </>
+  );
+}
+
+function MatchesPage({
+  onOpenCreateMatch,
+}: {
+  onOpenCreateMatch: () => void;
+}) {
+  const publicClient = usePublicClient();
+  const [contractMatches, setContractMatches] = useState<
+    Array<{
+      id: bigint;
+      playerA: Address;
+      playerB: Address;
+      buyIn: bigint;
+      duration: bigint;
+      status: number;
+      tokensAllowed: number[];
+    }>
+  >([]);
+  const [isLoadingMatches, setIsLoadingMatches] = useState(false);
+  const [matchesError, setMatchesError] = useState<string | null>(null);
+  const [matchFilter, setMatchFilter] = useState<'current' | 'finished' | 'all'>('current');
+  const [sortBy, setSortBy] = useState<'duration' | 'buyIn'>('duration');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const { data: latestMatchIdData } = useReadContract({
+    address: hyperDuelContractAddress,
+    abi: hyperDuelAbi,
+    functionName: 'matchId',
+  });
+
+  const { data: buyInTokenAddressData } = useReadContract({
+    address: hyperDuelContractAddress,
+    abi: hyperDuelAbi,
+    functionName: 'buyInToken',
+  });
+
+  const { data: buyInTokenMetadata } = useReadContracts({
+    contracts: buyInTokenAddressData
+      ? [
+          {
+            address: buyInTokenAddressData as Address,
+            abi: erc20MetadataAbi,
+            functionName: 'symbol',
+          },
+          {
+            address: buyInTokenAddressData as Address,
+            abi: erc20MetadataAbi,
+            functionName: 'decimals',
+          },
+        ]
+      : [],
+    query: {
+      enabled: Boolean(buyInTokenAddressData),
+    },
+  });
+
+  const buyInTokenSymbol = (buyInTokenMetadata?.[0]?.result as string | undefined) ?? 'TOKEN';
+  const buyInTokenDecimals = Number((buyInTokenMetadata?.[1]?.result as number | undefined) ?? 18);
+
+  useEffect(() => {
+    if (!publicClient || latestMatchIdData === undefined) {
+      return;
+    }
+
+    const latestMatchId = Number(latestMatchIdData);
+    if (!Number.isFinite(latestMatchId) || latestMatchId < 1) {
+      setContractMatches([]);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchMatches = async () => {
+      setIsLoadingMatches(true);
+      setMatchesError(null);
+
+      try {
+        const matchIds = Array.from({ length: latestMatchId }, (_, index) => BigInt(index + 1));
+        const records = await Promise.all(
+          matchIds.map(async (id) => {
+            const match = (await publicClient.readContract({
+              address: hyperDuelContractAddress,
+              abi: hyperDuelAbi,
+              functionName: 'matches',
+              args: [id],
+            })) as unknown as {
+              playerA: Address;
+              playerB: Address;
+              buyIn: bigint;
+              duration: bigint;
+              status: number | bigint;
+              tokensAllowed: readonly number[] | readonly bigint[];
+            };
+
+            return {
+              id,
+              playerA: match.playerA,
+              playerB: match.playerB,
+              buyIn: BigInt(match.buyIn),
+              duration: BigInt(match.duration),
+              status: Number(match.status),
+              tokensAllowed: match.tokensAllowed.map((tokenId) => Number(tokenId)),
+            };
+          }),
+        );
+
+        if (!cancelled) {
+          setContractMatches(records);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setContractMatches([]);
+          setMatchesError(error instanceof Error ? error.message : 'Could not fetch matches.');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingMatches(false);
+        }
+      }
+    };
+
+    void fetchMatches();
+    return () => {
+      cancelled = true;
+    };
+  }, [latestMatchIdData, publicClient]);
+
+  const displayMatches = useMemo(() => {
+    const tokenLabelById = Object.entries(assetTokenIds).reduce<Record<number, string>>((accumulator, [label, id]) => {
+      accumulator[id] = label;
+      return accumulator;
+    }, {});
+
+    const filtered = contractMatches.filter((match) => {
+      if (match.status === 3) return false;
+      if (matchFilter === 'finished') return match.status === 2;
+      if (matchFilter === 'current') return match.status === 0 || match.status === 1;
+      return true;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      const comparePrimary =
+        sortBy === 'duration'
+          ? a.duration === b.duration
+            ? 0
+            : a.duration > b.duration
+              ? 1
+              : -1
+          : a.buyIn === b.buyIn
+            ? 0
+            : a.buyIn > b.buyIn
+              ? 1
+              : -1;
+
+      const orderedCompare = sortDirection === 'asc' ? comparePrimary : -comparePrimary;
+      if (orderedCompare !== 0) return orderedCompare;
+      return Number(b.id - a.id);
+    });
+
+    return sorted.map((match) => {
+      const playersCount = Number(match.playerA.toLowerCase() !== zeroAddress) + Number(match.playerB.toLowerCase() !== zeroAddress);
+      const statusLabel = match.status === 0 ? 'To Start' : match.status === 1 ? 'Ongoing' : 'Finished';
+      const assetsLabel =
+        match.tokensAllowed.length > 0
+          ? match.tokensAllowed.map((tokenId) => tokenLabelById[tokenId] ?? `T${tokenId}`).join(' • ')
+          : 'No assets';
+
+      return {
+        id: `#${match.id.toString()}`,
+        assets: assetsLabel,
+        buyIn: `${compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} ${buyInTokenSymbol}`,
+        duration: formatDurationFromSeconds(match.duration),
+        players: `${playersCount}/2`,
+        status: statusLabel,
+      };
+    });
+  }, [buyInTokenDecimals, buyInTokenSymbol, contractMatches, matchFilter, sortBy, sortDirection]);
+
+  return (
+    <section className="space-y-6">
+      <section className="border-y-4 border-[#0f1645] bg-[#3f8cff]/20 px-4 py-8 shadow-[0_6px_0_0_#0f1645] md:px-8">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="max-w-3xl space-y-3">
+            <div className="font-mono text-sm font-black uppercase tracking-[0.2em] text-[#ffbf3f]">
+              Match Lobby
+            </div>
+            <h1 className="font-mono text-3xl font-black uppercase tracking-tight text-white md:text-5xl">
+              Create Or Join A 1v1 Match
+            </h1>
+            <p className="font-mono text-sm font-bold leading-6 text-slate-100 md:text-base">
+              Configure the allowed assets, lock the buy-in, and jump into the live lobby to find
+              your next trading battle.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <PixelButton variant="gold" onClick={onOpenCreateMatch}>
+              Create Match
+            </PixelButton>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <PixelPanel title="Open 1v1 Matches">
+          <div className="space-y-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap gap-2">
+                <PixelSelectButton active={sortBy === 'duration'} onClick={() => setSortBy('duration')}>
+                  Sort: Duration
+                </PixelSelectButton>
+                <PixelSelectButton active={sortBy === 'buyIn'} onClick={() => setSortBy('buyIn')}>
+                  Sort: Buy-In
+                </PixelSelectButton>
+                <PixelSelectButton active={sortDirection === 'asc'} onClick={() => setSortDirection('asc')}>
+                  Asc
+                </PixelSelectButton>
+                <PixelSelectButton active={sortDirection === 'desc'} onClick={() => setSortDirection('desc')}>
+                  Desc
+                </PixelSelectButton>
+              </div>
+
+              <div className="flex items-center gap-2 self-start lg:self-auto">
+                <PixelTab active={matchFilter === 'current'} onClick={() => setMatchFilter('current')}>
+                  Current
+                </PixelTab>
+                <PixelTab active={matchFilter === 'finished'} onClick={() => setMatchFilter('finished')}>
+                  Finished
+                </PixelTab>
+                <PixelTab active={matchFilter === 'all'} onClick={() => setMatchFilter('all')}>
+                  All
+                </PixelTab>
+              </div>
+            </div>
+
+            <div className="overflow-hidden border-4 border-[#1b2346] bg-[#14204a] shadow-[0_5px_0_0_#0b1029]">
+              <div className="hidden grid-cols-[120px_1.2fr_140px_140px_100px_120px_110px] gap-4 border-b-4 border-[#26315f] bg-[#1d2b5f] px-4 py-3 font-mono text-xs font-black uppercase text-slate-200 md:grid">
+                <div>Match ID</div>
+                <div>Assets</div>
+                <div>Buy-In</div>
+                <div>Duration</div>
+                <div>Players</div>
+                <div>Status</div>
+                <div>Action</div>
+              </div>
+
+              <div className="divide-y-4 divide-[#26315f]">
+                {isLoadingMatches ? (
+                  <div className="px-4 py-6 font-mono text-sm font-black uppercase text-slate-200">
+                    Loading matches from contract...
+                  </div>
+                ) : matchesError ? (
+                  <div className="px-4 py-6 font-mono text-sm font-black uppercase text-[#ff8f7f]">
+                    Failed to load matches
+                  </div>
+                ) : displayMatches.length === 0 ? (
+                  <div className="px-4 py-6 font-mono text-sm font-black uppercase text-slate-300">
+                    No matches for this filter
+                  </div>
+                ) : (
+                  displayMatches.map((match) => <MatchRow key={match.id} match={match} />)
+                )}
+              </div>
+            </div>
+          </div>
+        </PixelPanel>
+      </section>
+    </section>
+  );
+}
+
+function Navbar({
+  onNavigateToHowToPlay,
+}: {
+  onNavigateToHowToPlay: () => void;
+}) {
   return (
     <header className="sticky top-0 z-20 border-b-4 border-[#0f1645] bg-[#2053d6] shadow-[0_4px_0_0_#0f1645]">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 md:px-6 lg:px-8">
@@ -309,25 +651,89 @@ function Navbar() {
         </div>
 
         <nav className="hidden items-center gap-8 font-mono text-lg font-black uppercase text-white md:flex">
-          <a className="border-b-4 border-[#ffbf3f] pb-1 text-[#ffefb0]" href="#">
+          <NavLink
+            to="/"
+            className={({ isActive }) =>
+              isActive ? 'border-b-4 border-[#ffbf3f] pb-1 text-[#ffefb0]' : 'hover:text-[#ffefb0]'
+            }
+          >
             Home
-          </a>
-          <a className="hover:text-[#ffefb0]" href="#matches">
+          </NavLink>
+          <NavLink
+            to="/matches"
+            className={({ isActive }) =>
+              isActive ? 'border-b-4 border-[#ffbf3f] pb-1 text-[#ffefb0]' : 'hover:text-[#ffefb0]'
+            }
+          >
             Matches
-          </a>
-          <a className="hover:text-[#ffefb0]" href="#how-to-play">
+          </NavLink>
+          <button type="button" className="hover:text-[#ffefb0]" onClick={onNavigateToHowToPlay}>
             How to Play
-          </a>
+          </button>
         </nav>
 
         <div className="flex items-center gap-3">
-          <PixelButton variant="purple" className="hidden md:inline-flex">
-            MultiChain
-          </PixelButton>
+          <div className="hidden md:block">
+            <NetworkSelector />
+          </div>
           <WalletButton />
         </div>
       </div>
     </header>
+  );
+}
+
+function NetworkSelector() {
+  const { isConnected } = useAccount();
+  const chainId = useChainId();
+  const { switchChain, isPending } = useSwitchChain();
+  const [isOpen, setIsOpen] = useState(false);
+
+  const activeChainName =
+    supportedChains.find((chain) => chain.id === chainId)?.name ?? hyperliquidEvmChain.name;
+
+  return (
+    <div className="relative">
+      <PixelButton variant="purple" onClick={() => setIsOpen((value) => !value)}>
+        {activeChainName}
+      </PixelButton>
+      {isOpen ? (
+        <div className="absolute right-0 z-30 mt-2 w-64 border-4 border-[#2e2276] bg-[#131d44] p-2 shadow-[0_5px_0_0_#2e2276]">
+          <div className="mb-2 border-b-4 border-[#26315f] pb-2 font-mono text-xs font-black uppercase text-slate-300">
+            Supported Networks
+          </div>
+          <div className="space-y-2">
+            {supportedChains.map((chain) => {
+              const isActive = chain.id === chainId;
+              return (
+                <button
+                  key={chain.id}
+                  type="button"
+                  className={`w-full border-4 px-3 py-2 text-left font-mono text-xs font-black uppercase shadow-[0_3px_0_0_#162141] ${
+                    isActive
+                      ? 'border-[#0b2f7b] bg-[#1c63ff] text-white'
+                      : 'border-[#26315f] bg-[#10173a] text-slate-200'
+                  }`}
+                  onClick={() => {
+                    setIsOpen(false);
+                    if (!isConnected || isActive) return;
+                    switchChain({ chainId: chain.id });
+                  }}
+                  disabled={isPending || !isConnected}
+                >
+                  {chain.name}
+                </button>
+              );
+            })}
+          </div>
+          {!isConnected ? (
+            <div className="mt-2 font-mono text-[10px] font-bold uppercase text-slate-400">
+              Connect wallet to switch network.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -366,10 +772,7 @@ function WalletButton() {
         }
 
         return (
-          <div className="flex flex-col items-end gap-2 sm:flex-row">
-            <PixelButton variant="purple" onClick={openChainModal} className="hidden md:inline-flex">
-              {chain.name ?? 'Network'}
-            </PixelButton>
+          <div className="flex flex-col items-end gap-2">
             <PixelButton variant="green" onClick={openAccountModal}>
               {account.displayName}
             </PixelButton>
@@ -424,12 +827,14 @@ function PixelButton({
   className = '',
   onClick,
   title,
+  disabled = false,
 }: {
   children: ReactNode;
   variant?: 'blue' | 'gold' | 'green' | 'purple';
   className?: string;
   onClick?: () => void;
   title?: string;
+  disabled?: boolean;
 }) {
   const styles = {
     blue: 'bg-[#1c63ff] text-white border-[#0b2f7b] shadow-[0_4px_0_0_#0b2f7b]',
@@ -440,10 +845,13 @@ function PixelButton({
 
   return (
     <button
-      className={`inline-flex items-center justify-center border-4 px-4 py-2 font-mono text-lg font-black uppercase transition-transform hover:translate-y-[1px] active:translate-y-[2px] ${styles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center border-4 px-4 py-2 font-mono text-lg font-black uppercase transition-transform ${
+        disabled ? 'cursor-not-allowed opacity-60' : 'hover:translate-y-[1px] active:translate-y-[2px]'
+      } ${styles[variant]} ${className}`}
       type="button"
       onClick={onClick}
       title={title}
+      disabled={disabled}
     >
       {children}
     </button>
@@ -554,10 +962,19 @@ function PixelDropdown({ label }: { label: string }) {
   );
 }
 
-function PixelTab({ children, active = false }: { children: ReactNode; active?: boolean }) {
+function PixelTab({
+  children,
+  active = false,
+  onClick,
+}: {
+  children: ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+}) {
   return (
     <button
       type="button"
+      onClick={onClick}
       className={`border-4 px-3 py-2 font-mono text-sm font-black uppercase shadow-[0_4px_0_0_#162141] ${
         active ? 'border-[#0b2f7b] bg-[#1c63ff] text-white' : 'border-[#26315f] bg-[#131d44] text-slate-200'
       }`}
@@ -650,10 +1067,70 @@ function CreateMatchModal({
   onReservedOpponentAddressChange: (value: string) => void;
   onClose: () => void;
 }) {
+  const { isConnected } = useAccount();
+  const { data: hash, error, isPending, writeContract } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+    hash,
+  });
+
+  const tokensAllowed = useMemo(
+    () => selectedAssets.map((asset) => assetTokenIds[asset]).filter((tokenId): tokenId is number => tokenId !== undefined),
+    [selectedAssets],
+  );
+  const buyInAmount = useMemo(() => parseUnits(selectedBuyIn.toString(), 6), [selectedBuyIn]);
+  const durationInSeconds = useMemo(() => BigInt(selectedDurationHours * 60 * 60), [selectedDurationHours]);
+  const trimmedReservedOpponentAddress = reservedOpponentAddress.trim();
+  const reservedAddressIsValid = /^0x[a-fA-F0-9]{40}$/.test(trimmedReservedOpponentAddress);
+
+  useEffect(() => {
+    if (isConfirmed) {
+      onClose();
+    }
+  }, [isConfirmed, onClose]);
+
   if (!isOpen) return null;
 
-  const creatorJoinsAsPlayerA = matchCreationMode !== 'empty';
   const isReservedMatch = matchCreationMode === 'reserved';
+  const hasAssetSelection = tokensAllowed.length > 0;
+  const hasUnknownAssetSelection = tokensAllowed.length !== selectedAssets.length;
+  const canSubmit =
+    isConnected &&
+    !isPending &&
+    !isConfirming &&
+    hasAssetSelection &&
+    !hasUnknownAssetSelection &&
+    (!isReservedMatch || reservedAddressIsValid);
+
+  const handleConfirmMatch = () => {
+    if (!canSubmit) return;
+
+    if (matchCreationMode === 'empty') {
+      writeContract({
+        address: hyperDuelContractAddress,
+        abi: hyperDuelAbi,
+        functionName: 'createMatch',
+        args: [tokensAllowed, buyInAmount, durationInSeconds],
+      });
+      return;
+    }
+
+    if (matchCreationMode === 'creator-joins') {
+      writeContract({
+        address: hyperDuelContractAddress,
+        abi: hyperDuelAbi,
+        functionName: 'createMatchAndJoin',
+        args: [tokensAllowed, buyInAmount, durationInSeconds],
+      });
+      return;
+    }
+
+    writeContract({
+      address: hyperDuelContractAddress,
+      abi: hyperDuelAbi,
+      functionName: 'askForMatch',
+      args: [trimmedReservedOpponentAddress as Address, tokensAllowed, buyInAmount, durationInSeconds],
+    });
+  };
 
   return (
     <div className="fixed inset-0 z-40 overflow-y-auto bg-[#0d1a3f]/80 px-4 py-8">
@@ -713,6 +1190,11 @@ function CreateMatchModal({
                   value={reservedOpponentAddress}
                   onChange={onReservedOpponentAddressChange}
                 />
+                {trimmedReservedOpponentAddress && !reservedAddressIsValid ? (
+                  <p className="font-mono text-xs font-bold leading-5 text-[#ff8f7f]">
+                    Enter a valid wallet address to create a reserved match.
+                  </p>
+                ) : null}
                 <p className="font-mono text-xs font-bold leading-5 text-slate-300">
                   The selected address will need to accept the match proposal before the reserved match begins.
                 </p>
@@ -781,12 +1263,31 @@ function CreateMatchModal({
             </div>
           </div>
 
+          <div className="border-4 border-[#26315f] bg-[#10173a] px-4 py-3 font-mono text-xs font-bold uppercase text-slate-200 shadow-[0_4px_0_0_#162141]">
+            <div>Contract: {hyperDuelContractAddress}</div>
+            <div className="mt-2">
+              Action:{' '}
+              {matchCreationMode === 'empty'
+                ? 'createMatch'
+                : matchCreationMode === 'creator-joins'
+                  ? 'createMatchAndJoin'
+                  : 'askForMatch'}
+            </div>
+            {!isConnected ? <div className="mt-2 text-[#ff8f7f]">Connect a wallet to create a match.</div> : null}
+            {hasUnknownAssetSelection ? (
+              <div className="mt-2 text-[#ff8f7f]">One or more selected assets is missing a contract token id mapping.</div>
+            ) : null}
+            {error ? <div className="mt-2 break-all text-[#ff8f7f]">{error.message}</div> : null}
+            {hash ? <div className="mt-2 break-all text-[#7fffb2]">Tx: {hash}</div> : null}
+            {isConfirming ? <div className="mt-2 text-[#ffefb0]">Waiting for confirmation...</div> : null}
+          </div>
+
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
             <PixelButton variant="blue" onClick={onClose}>
               Cancel
             </PixelButton>
-            <PixelButton variant="gold" onClick={onClose}>
-              Confirm Match
+            <PixelButton variant="gold" onClick={handleConfirmMatch} disabled={!canSubmit}>
+              {isPending ? 'Confirm In Wallet' : isConfirming ? 'Creating Match...' : 'Confirm Match'}
             </PixelButton>
           </div>
         </div>
@@ -803,4 +1304,32 @@ function formatDuration(hours: number) {
   if (Number.isInteger(days)) return `${days} Day${days === 1 ? '' : 's'}`;
 
   return `${hours} Hours`;
+}
+
+function formatDurationFromSeconds(durationInSeconds: bigint) {
+  const oneHour = 3600n;
+  const oneDay = 86400n;
+  const oneWeek = 604800n;
+
+  if (durationInSeconds >= oneWeek && durationInSeconds % oneWeek === 0n) {
+    const weeks = durationInSeconds / oneWeek;
+    return `${weeks.toString()} Week${weeks === 1n ? '' : 's'}`;
+  }
+
+  if (durationInSeconds >= oneDay && durationInSeconds % oneDay === 0n) {
+    const days = durationInSeconds / oneDay;
+    return `${days.toString()} Day${days === 1n ? '' : 's'}`;
+  }
+
+  if (durationInSeconds >= oneHour && durationInSeconds % oneHour === 0n) {
+    const hours = durationInSeconds / oneHour;
+    return `${hours.toString()} Hour${hours === 1n ? '' : 's'}`;
+  }
+
+  return `${durationInSeconds.toString()}s`;
+}
+
+function compactNumber(value: string) {
+  if (!value.includes('.')) return value;
+  return value.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
 }
