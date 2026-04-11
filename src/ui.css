@@ -1,0 +1,279 @@
+.pixel-panel {
+  border: 4px solid #4a261a;
+  background: rgba(32, 50, 95, 0.95);
+  box-shadow: 0 6px 0 0 #3a1d14;
+  backdrop-filter: blur(4px);
+}
+
+.pixel-panel__title {
+  border-bottom: 4px solid #4a261a;
+  background: #6f3b1e;
+  padding: 0.75rem 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 1.5rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #ffd88a;
+}
+
+.pixel-panel__body {
+  padding: 1rem;
+}
+
+@media (min-width: 768px) {
+  .pixel-panel__title {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+
+  .pixel-panel__body {
+    padding: 1.25rem;
+  }
+}
+
+.pixel-stat-card {
+  border: 4px solid #4a261a;
+  background: #6f3b1e;
+  padding: 1rem;
+  box-shadow: 0 5px 0 0 #3a1d14;
+}
+
+.pixel-stat-card__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pixel-stat-card__left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pixel-stat-card__icon {
+  font-size: 1.5rem;
+}
+
+.pixel-stat-card__label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 1rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #fff2cf;
+}
+
+.pixel-stat-card__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 2.25rem;
+  font-weight: 900;
+  color: #fff;
+}
+
+.pixel-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 4px solid;
+  padding: 0.5rem 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 1.125rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  transition: transform 120ms ease;
+}
+
+.pixel-button:not(.pixel-button--disabled):hover {
+  transform: translateY(1px);
+}
+
+.pixel-button:not(.pixel-button--disabled):active {
+  transform: translateY(2px);
+}
+
+.pixel-button--disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pixel-button--blue {
+  background: #1c63ff;
+  color: #fff;
+  border-color: #0b2f7b;
+  box-shadow: 0 4px 0 0 #0b2f7b;
+}
+
+.pixel-button--gold {
+  background: #ffca28;
+  color: #1c2452;
+  border-color: #9b6900;
+  box-shadow: 0 4px 0 0 #9b6900;
+}
+
+.pixel-button--green {
+  background: #33b443;
+  color: #fff;
+  border-color: #14621f;
+  box-shadow: 0 4px 0 0 #14621f;
+}
+
+.pixel-button--purple {
+  background: #6646ff;
+  color: #fff;
+  border-color: #2e2276;
+  box-shadow: 0 4px 0 0 #2e2276;
+}
+
+.pixel-select-button,
+.pixel-tab {
+  border: 4px solid #26315f;
+  background: #131d44;
+  color: #e2e8f0;
+  box-shadow: 0 4px 0 0 #162141;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.875rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pixel-select-button {
+  padding: 0.5rem 1rem;
+}
+
+.pixel-tab {
+  padding: 0.5rem 0.75rem;
+}
+
+.pixel-select-button--active,
+.pixel-tab--active {
+  border-color: #0b2f7b;
+  background: #1c63ff;
+  color: #fff;
+}
+
+.pixel-toggle-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 4px solid #26315f;
+  background: #131d44;
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 4px 0 0 #162141;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 1rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #e2e8f0;
+}
+
+.pixel-toggle-chip--active {
+  border-color: #0b2f7b;
+  background: #1c63ff;
+  color: #fff;
+}
+
+.pixel-toggle-chip__left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pixel-toggle-chip__subtitle {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: none;
+  color: #f1f5f9;
+}
+
+.pixel-slider {
+  border: 4px solid #26315f;
+  background: #131d44;
+  padding: 1rem;
+  box-shadow: 0 4px 0 0 #162141;
+}
+
+.pixel-slider__header {
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pixel-slider__limit {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #cbd5e1;
+}
+
+.pixel-slider__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 1.125rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #ffefb0;
+}
+
+.pixel-slider__input {
+  height: 0.75rem;
+  width: 100%;
+  cursor: pointer;
+  appearance: none;
+  border-radius: 0;
+  border: 2px solid #0b2f7b;
+  background: #1d2b5f;
+}
+
+.pixel-dropdown,
+.pixel-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-weight: 700;
+}
+
+.pixel-dropdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 4px solid #26315f;
+  background: #131d44;
+  padding: 0.5rem 1rem;
+  color: #e2e8f0;
+  box-shadow: 0 4px 0 0 #162141;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+}
+
+.pixel-input {
+  width: 100%;
+  border: 4px solid #26315f;
+  background: #10173a;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  color: #fff;
+  outline: none;
+}
+
+.pixel-input::placeholder {
+  color: #94a3b8;
+}
+
+.panel-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.875rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #e8edff;
+}
+
+.match-status-pill {
+  display: inline-flex;
+  border: 4px solid #26315f;
+  background: #131d44;
+  padding: 0.25rem 0.75rem;
+  box-shadow: 0 3px 0 0 #162141;
+  text-transform: uppercase;
+  color: #f1f5f9;
+}
