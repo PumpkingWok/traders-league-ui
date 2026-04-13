@@ -6,15 +6,15 @@ A React + Vite UI frontend for Traders League, using Tailwind CSS for styling.
 
 1. Install dependencies:
    ```bash
-   npm install
+   yarn install
    ```
 2. Run the development server:
    ```bash
-   npm run dev
+   yarn dev
    ```
 3. Build for production:
    ```bash
-   npm run build
+   yarn build
    ```
 
 ## Wallet setup
