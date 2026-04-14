@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatUnits, parseUnits, type Address } from 'viem';
-import { useAccount, usePublicClient, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { useAccount, useChainId, usePublicClient, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { hyperDuelAbi, hyperDuelSwapEvent } from '../config/abis';
 import {
   swapHistoryLookbackBlocks,
+  tokenDisplayDecimalsByChainId,
   zeroAddress,
 } from '../config/contracts';
 import { compactNumber, formatAddress } from '../utils/format';
-import { PixelButton, PixelInput } from './pixel';
 import { type SwapHistoryEntry } from '../types/match';
+
+const virtualAssetDecimals = 18;
 
 export function SwapPanel({
   matchId,
@@ -32,7 +34,26 @@ export function SwapPanel({
   hyperDuelContractAddress?: Address;
 }) {
   const { isConnected } = useAccount();
+  const chainId = useChainId();
   const publicClient = usePublicClient();
+  const tokenDecimalsOverrideByLabel = tokenDisplayDecimalsByChainId[chainId] ?? {};
+  const tokenIdByLabel = useMemo(
+    () =>
+      Object.entries(tokenLabelById).reduce<Record<string, number>>((accumulator, [tokenId, label]) => {
+        accumulator[label] = Number(tokenId);
+        return accumulator;
+      }, {}),
+    [tokenLabelById],
+  );
+  const tokenDecimalsOverrideById = useMemo(
+    () =>
+      Object.entries(tokenDecimalsOverrideByLabel).reduce<Record<number, number>>((accumulator, [label, decimals]) => {
+        const tokenId = tokenIdByLabel[label];
+        if (tokenId !== undefined) accumulator[tokenId] = decimals;
+        return accumulator;
+      }, {}),
+    [tokenDecimalsOverrideByLabel, tokenIdByLabel],
+  );
   const selectableTokens = useMemo(() => [0, ...tokensAllowed], [tokensAllowed]);
   const [tokenIn, setTokenIn] = useState<number>(selectableTokens[0] ?? 0);
   const [tokenOut, setTokenOut] = useState<number>(selectableTokens[1] ?? selectableTokens[0] ?? 0);
@@ -73,11 +94,16 @@ export function SwapPanel({
   const tokenDecimalsById = useMemo(() => {
     const map: Record<number, number> = { 0: 8 };
     tokensAllowed.forEach((tokenId, index) => {
+      const overrideDecimals = tokenDecimalsOverrideById[tokenId];
+      if (overrideDecimals !== undefined) {
+        map[tokenId] = overrideDecimals;
+        return;
+      }
       const result = tokenDecimalsData?.[index]?.result;
       map[tokenId] = typeof result === 'number' ? result : 8;
     });
     return map;
-  }, [tokenDecimalsData, tokensAllowed]);
+  }, [tokenDecimalsData, tokenDecimalsOverrideById, tokensAllowed]);
 
   const loadMatchDetails = useCallback(async () => {
     if (!publicClient || !hyperDuelContractAddress) {
@@ -227,11 +253,12 @@ export function SwapPanel({
   const parsedAmountIn = useMemo(() => {
     if (!amountIn) return null;
     try {
-      return parseUnits(amountIn, tokenDecimalsById[tokenIn] ?? 8);
+      // Contract virtual balances are tracked with 18 decimals for all assets.
+      return parseUnits(amountIn, virtualAssetDecimals);
     } catch {
       return null;
     }
-  }, [amountIn, tokenDecimalsById, tokenIn]);
+  }, [amountIn]);
 
   const canSwap =
     isConnected &&
@@ -272,31 +299,31 @@ export function SwapPanel({
 
   return (
     <div className="space-y-3">
-      <div className="border-4 border-[#26315f] bg-[#10173a] px-3 py-3">
-        <div className="mb-2 font-mono text-xs font-black uppercase text-[#ffefb0]">Match Details</div>
-        <div className="grid gap-2 font-mono text-xs font-bold text-white md:grid-cols-2">
-          <div><span className="text-slate-300">Players:</span> {formatAddress(playerA)} vs {formatAddress(playerB)}</div>
-          <div><span className="text-slate-300">Current Winner:</span> {isLoadingMatchDetails ? 'Loading...' : liveWinnerLabel}</div>
+      <div className="border border-[#b9b9b9] bg-[#f3f3f3] px-3 py-3">
+        <div className="mb-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a]">Match Details</div>
+        <div className="grid gap-2 font-mono text-xs font-bold text-[#474747] md:grid-cols-2">
+          <div><span className="text-[#666]">Players:</span> {formatAddress(playerA)} vs {formatAddress(playerB)}</div>
+          <div><span className="text-[#666]">Current Winner:</span> {isLoadingMatchDetails ? 'Loading...' : liveWinnerLabel}</div>
           <div>
-            <span className="text-slate-300">Player A Total USD:</span>{' '}
+            <span className="text-[#666]">Player A Total USD:</span>{' '}
             {playerATotalUsd === null ? '-' : compactNumber(formatUnits(playerATotalUsd, 8))}
           </div>
           <div>
-            <span className="text-slate-300">Player B Total USD:</span>{' '}
+            <span className="text-[#666]">Player B Total USD:</span>{' '}
             {playerBTotalUsd === null ? '-' : compactNumber(formatUnits(playerBTotalUsd, 8))}
           </div>
           <div>
-            <span className="text-slate-300">Prize Pool (Gross):</span>{' '}
+            <span className="text-[#666]">Prize Pool (Gross):</span>{' '}
             {compactNumber(formatUnits(prizePoolGross, buyInTokenDecimals))} {buyInTokenSymbol}
           </div>
-          <div><span className="text-slate-300">Platform Fees:</span> {platformFeesLabel}</div>
+          <div><span className="text-[#666]">Platform Fees:</span> {platformFeesLabel}</div>
         </div>
-        {matchDetailsError ? <div className="mt-2 font-mono text-xs font-bold uppercase text-[#ff8f7f]">{matchDetailsError}</div> : null}
+        {matchDetailsError ? <div className="mt-2 font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">{matchDetailsError}</div> : null}
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
         <select
-          className="border-4 border-[#26315f] bg-[#10173a] px-3 py-2 font-mono text-sm font-bold text-white"
+          className="border border-[#b9b9b9] bg-[#f8f8f8] px-3 py-2 font-mono text-sm font-bold text-[#474747]"
           value={tokenIn}
           onChange={(event) => setTokenIn(Number(event.target.value))}
         >
@@ -308,7 +335,7 @@ export function SwapPanel({
         </select>
 
         <select
-          className="border-4 border-[#26315f] bg-[#10173a] px-3 py-2 font-mono text-sm font-bold text-white"
+          className="border border-[#b9b9b9] bg-[#f8f8f8] px-3 py-2 font-mono text-sm font-bold text-[#474747]"
           value={tokenOut}
           onChange={(event) => setTokenOut(Number(event.target.value))}
         >
@@ -319,37 +346,47 @@ export function SwapPanel({
           ))}
         </select>
 
-        <PixelInput
+        <input
+          className="w-full border border-[#b9b9b9] bg-[#f8f8f8] px-3 py-2 font-mono text-sm font-bold text-[#404040] outline-none placeholder:text-[#999]"
           type="text"
           placeholder="Amount in"
           value={amountIn}
-          onChange={setAmountIn}
+          onChange={(event) => setAmountIn(event.target.value)}
         />
       </div>
 
       {tokenIn === tokenOut ? (
-        <div className="font-mono text-xs font-bold uppercase text-[#ff8f7f]">Select different tokens.</div>
+        <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">Select different tokens.</div>
       ) : null}
       {amountIn && parsedAmountIn === null ? (
-        <div className="font-mono text-xs font-bold uppercase text-[#ff8f7f]">Enter a valid amount.</div>
+        <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">Enter a valid amount.</div>
       ) : null}
-      {swapError ? <div className="break-all font-mono text-xs font-bold uppercase text-[#ff8f7f]">{swapError.message}</div> : null}
-      {swapHash ? <div className="break-all font-mono text-xs font-bold uppercase text-[#7fffb2]">Swap Tx: {swapHash}</div> : null}
+      {swapError ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">{swapError.message}</div> : null}
+      {swapHash ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#447056]">Swap Tx: {swapHash}</div> : null}
 
       <div className="flex justify-end">
-        <PixelButton variant="gold" onClick={onSwap} disabled={!canSwap}>
+        <button
+          type="button"
+          className={`border px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
+            canSwap
+              ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98] hover:bg-[#e3deff]'
+              : 'cursor-not-allowed border-[#c8c8c8] bg-[#f1f1f1] text-[#9a9a9a]'
+          }`}
+          onClick={onSwap}
+          disabled={!canSwap}
+        >
           {isSwapPending ? 'Confirm In Wallet' : isConfirmingSwap ? 'Swapping...' : 'Swap'}
-        </PixelButton>
+        </button>
       </div>
 
-      <div className="border-4 border-[#26315f] bg-[#10173a] px-3 py-3">
-        <div className="mb-2 font-mono text-xs font-black uppercase text-[#ffefb0]">Recent Swap History</div>
+      <div className="border border-[#b9b9b9] bg-[#f3f3f3] px-3 py-3">
+        <div className="mb-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a]">Recent Swap History</div>
         {isLoadingSwapHistory ? (
-          <div className="font-mono text-xs font-bold uppercase text-slate-300">Loading swaps...</div>
+          <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#666]">Loading swaps...</div>
         ) : swapHistoryError ? (
-          <div className="font-mono text-xs font-bold uppercase text-[#ff8f7f]">{swapHistoryError}</div>
+          <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">{swapHistoryError}</div>
         ) : swapHistory.length === 0 ? (
-          <div className="font-mono text-xs font-bold uppercase text-slate-300">
+          <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#666]">
             No recent Swap events found for this match.
           </div>
         ) : (
@@ -357,14 +394,14 @@ export function SwapPanel({
             {swapHistory.slice(0, 12).map((entry) => (
               <div
                 key={`${entry.txHash}-${entry.blockNumber.toString()}`}
-                className="border-2 border-[#26315f] bg-[#131d44] px-3 py-2 font-mono text-xs text-white"
+                className="border border-[#c2c2c2] bg-[#f9f9f9] px-3 py-2 font-mono text-xs text-[#444]"
               >
-                <div className="font-bold text-[#ffefb0]">{formatPlayerAddress(entry.player)}</div>
-                <div className="mt-1 text-slate-200">
+                <div className="font-bold text-[#4f4f4f]">{formatPlayerAddress(entry.player)}</div>
+                <div className="mt-1 text-[#555]">
                   {compactNumber(formatUnits(entry.amountIn, tokenDecimalsById[entry.tokenIn] ?? 8))} {formatToken(entry.tokenIn)} →{' '}
                   {compactNumber(formatUnits(entry.amountOut, tokenDecimalsById[entry.tokenOut] ?? 8))} {formatToken(entry.tokenOut)}
                 </div>
-                <div className="mt-1 text-slate-400">{formatSwapTimestamp(entry.timestamp)}</div>
+                <div className="mt-1 text-[#777]">{formatSwapTimestamp(entry.timestamp)}</div>
               </div>
             ))}
           </div>

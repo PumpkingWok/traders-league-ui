@@ -1,11 +1,10 @@
-import { PixelButton, PixelPanel, PixelStatCard } from '../components/pixel';
 import { supportedChains } from '../config/networks';
 
 const stats = [
-  { label: 'Open Matches', value: '12', icon: '📦' },
-  { label: 'Live Matches', value: '6', icon: '⚔️' },
-  { label: 'Completed Matches', value: '134', icon: '🏆' },
-  { label: 'Supported Chains', value: String(supportedChains.length), icon: '🌐' },
+  { label: 'Open Matches', value: '12', icon: '01' },
+  { label: 'Live Matches', value: '6', icon: '02' },
+  { label: 'Completed Matches', value: '134', icon: '03' },
+  { label: 'Supported Chains', value: String(supportedChains.length), icon: '04' },
 ];
 
 const howToPlaySteps = [
@@ -40,70 +39,97 @@ export default function HomePage({
 }) {
   return (
     <>
-      <section className="grid grid-cols-1 gap-6 border-y-4 border-[#0f1645] bg-[#3f8cff]/20 px-4 py-8 shadow-[0_6px_0_0_#0f1645] md:grid-cols-[1.15fr_1fr] md:px-8">
-        <div className="space-y-5">
-          <div>
-            <h1 className="font-mono text-3xl font-black uppercase tracking-tight text-white md:text-5xl">
-              Compete in 1v1 Trading Battles!
-            </h1>
-            <ul className="mt-5 space-y-2 font-mono text-base font-bold md:text-lg">
-              <li>• Create a match</li>
-              <li>• Set buy-in and duration</li>
-              <li>• Trade virtual assets</li>
-              <li>• Win the pot!</li>
-            </ul>
+      <section className="border border-[#a8a8a8] bg-[#f1f1f1]">
+        <div className="h-1 w-full bg-[linear-gradient(90deg,#8f83ff_0%,#7ed8ff_50%,#8f83ff_100%)]" />
+        <div className="grid grid-cols-1 gap-6 px-4 py-6 md:grid-cols-[1.15fr_1fr] md:px-8 md:py-7">
+          <div className="space-y-5">
+            <div className="inline-flex border border-[#9d9d9d] bg-[#e7e7e7] px-3 py-1 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#505050]">
+              Game Lobby
+            </div>
+            <div>
+              <h1 className="font-mono text-3xl font-black uppercase tracking-[0.06em] text-[#2b2b2b] md:text-5xl">
+                Compete in 1v1 Trading Battles
+              </h1>
+              <ul className="mt-5 space-y-2 font-mono text-sm font-black uppercase tracking-[0.05em] text-[#4a4a4a] md:text-base">
+                <li>Create a match</li>
+                <li>Set buy-in and duration</li>
+                <li>Trade virtual assets</li>
+                <li>Win the pot</li>
+              </ul>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={onOpenCreateMatch}
+                className="border border-[#8f83ff] bg-[#ece9ff] px-4 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#453e9d] hover:bg-[#e3deff]"
+              >
+                Create Match
+              </button>
+              <button
+                type="button"
+                onClick={onBrowseMatches}
+                className="border border-[#9d9d9d] bg-[#f6f6f6] px-4 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3f3f3f] hover:bg-[#eaeaea]"
+              >
+                Browse Matches
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <PixelButton variant="gold" onClick={onOpenCreateMatch}>
-              Create Match
-            </PixelButton>
-            <PixelButton variant="blue" onClick={onBrowseMatches}>
-              Browse Matches
-            </PixelButton>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {stats.map((stat) => (
+              <div key={stat.label} className="border border-[#b2b2b2] bg-[#f8f8f8] px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="inline-flex border border-[#b8b8b8] bg-[#ebebeb] px-2 py-1 font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#646464]">
+                    {stat.icon}
+                  </div>
+                  <div className="font-mono text-2xl font-black text-[#2d2d2d] md:text-3xl">{stat.value}</div>
+                </div>
+                <div className="mt-2 border-t border-[#d0d0d0] pt-2 font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#5a5a5a]">
+                  {stat.label}
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {stats.map((stat) => (
-            <PixelStatCard key={stat.label} icon={stat.icon} label={stat.label} value={stat.value} />
-          ))}
         </div>
       </section>
 
-      <section id="how-to-play" className="mt-6">
-        <PixelPanel title="How to Play">
-          <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              {howToPlaySteps.map((step, index) => (
-                <div
-                  key={step.title}
-                  className="border-4 border-[#26315f] bg-[#131d44] px-4 py-4 shadow-[0_4px_0_0_#162141]"
-                >
-                  <div className="font-mono text-xs font-black uppercase text-[#ffbf3f]">
-                    Step {index + 1}
-                  </div>
-                  <h3 className="mt-2 font-mono text-xl font-black uppercase text-white">
-                    {step.title}
-                  </h3>
-                  <p className="mt-3 font-mono text-sm font-bold leading-6 text-slate-200">
-                    {step.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <div className="border-4 border-[#4a261a] bg-[#6f3b1e] px-4 py-4 shadow-[0_5px_0_0_#3a1d14]">
-              <div className="font-mono text-sm font-black uppercase text-[#ffefb0]">
-                Win Condition
-              </div>
-              <p className="mt-2 font-mono text-sm font-bold leading-6 text-[#fff2cf]">
-                Both players begin with 100K virtual USD. When the timer ends, the player with the
-                highest portfolio value in virtual USD wins the match prize.
-              </p>
-            </div>
+      <section id="how-to-play" className="mt-6 border border-[#a8a8a8] bg-[#f4f4f4]">
+        <div className="border-b border-[#bcbcbc] bg-[#ebebeb] px-4 py-3 md:px-6">
+          <div className="font-mono text-lg font-black uppercase tracking-[0.08em] text-[#363636]">
+            How To Play
           </div>
-        </PixelPanel>
+        </div>
+        <div className="space-y-4 px-4 py-4 md:px-6 md:py-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            {howToPlaySteps.map((step, index) => (
+              <div
+                key={step.title}
+                className="border border-[#b7b7b7] bg-[#f9f9f9] px-4 py-4"
+              >
+                <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#6a6a6a]">
+                  Step {index + 1}
+                </div>
+                <h3 className="mt-2 font-mono text-lg font-black uppercase tracking-[0.06em] text-[#2f2f2f] md:text-xl">
+                  {step.title}
+                </h3>
+                <p className="mt-3 font-mono text-sm font-bold leading-6 text-[#505050]">
+                  {step.description}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="border border-[#8f83ff] bg-[#eeebff] px-4 py-4">
+            <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4e459f]">
+              Win Condition
+            </div>
+            <p className="mt-2 font-mono text-sm font-bold leading-6 text-[#4c4c61]">
+              Both players begin with 100K virtual USD. When the timer ends, the player with the
+              highest portfolio value in virtual USD wins the match prize.
+            </p>
+          </div>
+        </div>
       </section>
     </>
   );

@@ -8,11 +8,16 @@ export type Match = {
   buyInRaw: bigint;
   assets: string;
   buyIn: string;
+  prize?: string;
   duration: string;
+  countdown?: string;
   players: string;
   statusCode: number;
   status: string;
   winner: string;
+  isJoined?: boolean;
+  canConclude?: boolean;
+  isConcluding?: boolean;
 };
 
 export type SwapHistoryEntry = {

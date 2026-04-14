@@ -9,7 +9,7 @@ import {
   useSwitchChain,
 } from 'wagmi';
 import { Navigate, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
-import { hasWalletConnectProjectId, hyperliquidEvmChain, hyperliquidTestnetChain, supportedChains } from './config/networks';
+import { hyperliquidEvmChain, hyperliquidTestnetChain, supportedChains } from './config/networks';
 import { erc20MetadataAbi, hyperDuelAbi } from './config/abis';
 import {
   assetDotColorByLabel,
@@ -23,7 +23,6 @@ import { type MatchCreationMode } from './types/match';
 import { CreateMatchModal } from './components/CreateMatchModal';
 import {
   PixelBackground,
-  PixelButton,
 } from './components/pixel';
 import HomePage from './pages/Home';
 import MatchesPage from './pages/Matches';
@@ -44,6 +43,7 @@ export default function App() {
   const [selectedAssets, setSelectedAssets] = useState<string[]>(['BTC', 'ETH']);
   const [matchCreationMode, setMatchCreationMode] = useState<MatchCreationMode>('creator-joins');
   const [reservedOpponentAddress, setReservedOpponentAddress] = useState('');
+  const [matchesRefreshNonce, setMatchesRefreshNonce] = useState(0);
   const selectedDuration = formatDuration(selectedDurationHours);
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
   const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};
@@ -146,7 +146,7 @@ export default function App() {
       : null;
 
   return (
-    <div className="min-h-screen bg-[#1b2a7a] text-white overflow-x-hidden">
+    <div className="min-h-screen bg-[#e3e3e3] text-white overflow-x-hidden">
       <PixelBackground />
 
       <div className="relative z-10">
@@ -168,6 +168,7 @@ export default function App() {
               element={
                 <MatchesPage
                   onOpenCreateMatch={() => setIsCreateMatchModalOpen(true)}
+                  refreshNonce={matchesRefreshNonce}
                 />
               }
             />
@@ -192,6 +193,7 @@ export default function App() {
         onDurationChange={setSelectedDurationHours}
         onMatchCreationModeChange={setMatchCreationMode}
         onReservedOpponentAddressChange={setReservedOpponentAddress}
+        onCreated={() => setMatchesRefreshNonce((value) => value + 1)}
         onClose={() => setIsCreateMatchModalOpen(false)}
       />
     </div>
@@ -199,60 +201,84 @@ export default function App() {
 }
 
 function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
+  const topNavLinkClassName = ({ isActive }: { isActive: boolean }) =>
+    `border-x border-[#9c9c9c] px-4 py-3 font-mono text-base font-black uppercase tracking-[0.08em] ${
+      isActive ? 'bg-[#5a53b6] text-[#f5f5ff]' : 'bg-transparent text-[#4a4a4a] hover:bg-[#dfdfdf]'
+    }`;
+
+  const bottomNavLinkClassName = ({ isActive }: { isActive: boolean }) =>
+    `px-2 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] ${
+      isActive ? 'text-[#2e2e2e]' : 'text-[#555] hover:text-[#1f1f1f]'
+    }`;
+
   return (
-    <header className="sticky top-0 z-20 border-b-4 border-[#0f1645] bg-[#2053d6] shadow-[0_4px_0_0_#0f1645]">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 md:px-6 lg:px-8">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center border-4 border-[#0f1645] bg-[#ff9c1a] text-2xl shadow-[0_4px_0_0_#0f1645]">
-            🛡️
-          </div>
-          <div>
-            <div className="font-mono text-2xl font-black uppercase tracking-tight text-[#ffbf3f] md:text-3xl">
-              Traders League
+    <header className="sticky top-0 z-20 border-b border-[#9f9f9f] bg-[#ececec] text-[#2e2e2e]">
+      <div className="h-2 w-full bg-[#4c4c4c]" />
+      <div className="border-b border-[#a3a3a3]">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 md:px-6 lg:px-8">
+          <div className="flex items-stretch">
+            <div className="flex items-center border-r border-[#9c9c9c] pr-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[conic-gradient(from_180deg,#ff5f6d,#ffc371,#33d1ff,#7a5fff,#ff5f6d)] text-[9px] font-black text-white">
+                TL
+              </div>
             </div>
-            <div className="font-mono text-[11px] font-bold uppercase text-blue-100">Multi-chain trading arena</div>
-          </div>
-        </div>
-
-        <nav className="hidden items-center gap-8 font-mono text-lg font-black uppercase text-white md:flex">
-          <NavLink
-            to="/"
-            className={({ isActive }) =>
-              isActive ? 'border-b-4 border-[#ffbf3f] pb-1 text-[#ffefb0]' : 'hover:text-[#ffefb0]'
-            }
-          >
-            Home
-          </NavLink>
-          <NavLink
-            to="/matches"
-            className={({ isActive }) =>
-              isActive ? 'border-b-4 border-[#ffbf3f] pb-1 text-[#ffefb0]' : 'hover:text-[#ffefb0]'
-            }
-          >
-            Matches
-          </NavLink>
-          <NavLink
-            to="/my-matches"
-            className={({ isActive }) =>
-              isActive ? 'border-b-4 border-[#ffbf3f] pb-1 text-[#ffefb0]' : 'hover:text-[#ffefb0]'
-            }
-          >
-            My Matches
-          </NavLink>
-        </nav>
-
-        <div className="flex items-center gap-3">
-          {buyInBalanceLabel ? (
-            <div className={`hidden items-center border-4 border-[#0b2f7b] bg-[#1c63ff] px-4 py-2 font-mono text-lg font-black uppercase text-[#ffefb0] shadow-[0_4px_0_0_#0b2f7b] md:inline-flex ${navbarControlClassName}`}>
-              Balance: {buyInBalanceLabel}
+            <div className="hidden items-stretch md:flex">
+              <NavLink to="/" className={topNavLinkClassName}>
+                Home
+              </NavLink>
+              <NavLink to="/matches" className={topNavLinkClassName}>
+                Matches
+              </NavLink>
+              <NavLink to="/my-matches" className={topNavLinkClassName}>
+                My Matches
+              </NavLink>
             </div>
-          ) : null}
-          <div className="hidden md:block">
-            <NetworkSelector />
           </div>
-          <WalletButton />
+
+          <div className="flex items-center gap-2 py-2">
+            <div className="hidden md:block">
+              <NetworkSelector />
+            </div>
+            <WalletButton />
+          </div>
         </div>
       </div>
+
+      <div className="border-b border-[#b4b4b4] bg-[#f2f2f2]">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-1 md:px-6 lg:px-8">
+          <div className="flex items-center gap-2 md:hidden">
+            <NavLink to="/" className={bottomNavLinkClassName}>
+              Home
+            </NavLink>
+            <NavLink to="/matches" className={bottomNavLinkClassName}>
+              Matches
+            </NavLink>
+            <NavLink to="/my-matches" className={bottomNavLinkClassName}>
+              My Matches
+            </NavLink>
+          </div>
+          <div className="hidden items-center gap-5 md:flex">
+            <div className="font-mono text-[13px] font-black uppercase tracking-[0.08em] text-[#4e4e4e]">Traders League</div>
+            {buyInBalanceLabel ? (
+              <div className="font-mono text-[12px] font-black uppercase tracking-[0.08em] text-[#686868]">
+                Balance: <span className="text-[#2f2f2f]">{buyInBalanceLabel}</span>
+              </div>
+            ) : null}
+          </div>
+          <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#636363]">
+            Retro-future trading arena
+          </div>
+        </div>
+      </div>
+      <div className="h-[2px] w-full bg-[linear-gradient(90deg,#8f83ff_0%,#7ed8ff_50%,#8f83ff_100%)]" />
+
+      {buyInBalanceLabel ? (
+        <div className="border-b border-[#a3a3a3] px-4 py-2 md:hidden">
+          <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#4f4f4f]">
+            Balance: <span className="text-[#2f2f2f]">{buyInBalanceLabel}</span>
+          </div>
+        </div>
+      ) : null}
     </header>
   );
 }
@@ -297,12 +323,16 @@ function NetworkSelector() {
 
   return (
     <div className="relative" ref={dropdownRef}>
-      <PixelButton variant="blue" className={navbarControlClassName} onClick={() => setIsOpen((value) => !value)}>
+      <button
+        type="button"
+        className={`border border-[#9c9c9c] bg-[#f4f4f4] px-4 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
+        onClick={() => setIsOpen((value) => !value)}
+      >
         {activeChainName}
-      </PixelButton>
+      </button>
       {isOpen ? (
-        <div className="absolute right-0 z-30 mt-2 w-64 border-4 border-[#0f1645] bg-[#2053d6] p-2 shadow-[0_5px_0_0_#0f1645]">
-          <div className="mb-2 border-b-4 border-[#0f1645] pb-2 font-mono text-xs font-black uppercase text-blue-100">
+        <div className="absolute right-0 z-30 mt-2 w-64 border border-[#9c9c9c] bg-[#f5f5f5] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.15)]">
+          <div className="mb-2 border-b border-[#c0c0c0] pb-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#515151]">
             Supported Networks
           </div>
           <div className="space-y-2">
@@ -312,10 +342,10 @@ function NetworkSelector() {
                 <button
                   key={chain.id}
                   type="button"
-                  className={`w-full border-4 px-3 py-2 text-left font-mono text-xs font-black uppercase shadow-[0_3px_0_0_#0f1645] ${
+                  className={`w-full border px-3 py-2 text-left font-mono text-xs font-black uppercase tracking-[0.08em] ${
                     isActive
-                      ? 'border-[#9b6900] bg-[#ffca28] text-[#1c2452]'
-                      : 'border-[#0f1645] bg-[#1c63ff] text-white'
+                      ? 'border-[#8f83ff] bg-[#ece9ff] text-[#403a92]'
+                      : 'border-[#bdbdbd] bg-[#fff] text-[#474747] hover:bg-[#efefef]'
                   }`}
                   onClick={() => {
                     setIsOpen(false);
@@ -330,7 +360,7 @@ function NetworkSelector() {
             })}
           </div>
           {!isConnected ? (
-            <div className="mt-2 font-mono text-[10px] font-bold uppercase text-blue-100">
+            <div className="mt-2 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#757575]">
               Connect wallet to switch network.
             </div>
           ) : null}
@@ -350,36 +380,38 @@ function WalletButton() {
         if (!connected) {
           return (
             <div className="flex flex-col items-end gap-1">
-              <PixelButton
-                variant="green"
-                className={navbarControlClassName}
+              <button
+                type="button"
+                className={`border border-[#9c9c9c] bg-[#f4f4f4] px-4 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
                 onClick={openConnectModal}
-                title={!hasWalletConnectProjectId ? 'Add VITE_WALLETCONNECT_PROJECT_ID in your .env file to enable WalletConnect-based wallets.' : undefined}
               >
                 Connect Wallet
-              </PixelButton>
-              {!hasWalletConnectProjectId ? (
-                <span className="max-w-[220px] text-right font-mono text-[10px] font-bold uppercase text-blue-100">
-                  Add `VITE_WALLETCONNECT_PROJECT_ID` to enable WalletConnect.
-                </span>
-              ) : null}
+              </button>
             </div>
           );
         }
 
         if (chain.unsupported) {
           return (
-            <PixelButton variant="gold" className={navbarControlClassName} onClick={openChainModal}>
+            <button
+              type="button"
+              className={`border border-[#d9a200] bg-[#fff0bf] px-4 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#5d4900] hover:bg-[#ffe89a] ${navbarControlClassName}`}
+              onClick={openChainModal}
+            >
               Wrong Network
-            </PixelButton>
+            </button>
           );
         }
 
         return (
           <div className="flex flex-col items-end gap-2">
-            <PixelButton variant="green" className={navbarControlClassName} onClick={openAccountModal}>
+            <button
+              type="button"
+              className={`border border-[#9c9c9c] bg-[#f4f4f4] px-4 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
+              onClick={openAccountModal}
+            >
               {account.displayName}
-            </PixelButton>
+            </button>
           </div>
         );
       }}

@@ -260,6 +260,12 @@
   color: #94a3b8;
 }
 
+@media (min-width: 768px) {
+  .matches-table-grid {
+    grid-template-columns: 120px minmax(0, 1.5fr) 180px 140px 130px 100px 120px 160px 110px;
+  }
+}
+
 .panel-label {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   font-size: 0.875rem;

@@ -4,7 +4,6 @@ import { useAccount, useChainId, usePublicClient, useReadContract, useReadContra
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenIndexByChainId, zeroAddress } from '../config/contracts';
 import { compactNumber, formatAddress, formatDurationFromSeconds } from '../utils/format';
-import { PixelPanel, PixelTab } from '../components/pixel';
 import { SwapPanel } from '../components/SwapPanel';
 
 export default function MyMatchesPage() {
@@ -27,6 +26,7 @@ export default function MyMatchesPage() {
       id: bigint;
       playerA: Address;
       playerB: Address;
+      winner: Address;
       currentWinner: Address;
       playerATotalUsd: bigint | null;
       playerBTotalUsd: bigint | null;
@@ -156,6 +156,7 @@ export default function MyMatchesPage() {
               id,
               playerA,
               playerB,
+              winner: match[2],
               currentWinner,
               playerATotalUsd,
               playerBTotalUsd,
@@ -204,59 +205,81 @@ export default function MyMatchesPage() {
     });
   }, [matches, statusFilter]);
 
+  const filterTabClass = (active: boolean) =>
+    `border px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
+      active
+        ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98]'
+        : 'border-[#b9b9b9] bg-[#f8f8f8] text-[#555] hover:bg-[#efefef]'
+    }`;
+
   if (!isConnected || !address) {
     return (
-      <section className="space-y-6">
-        <PixelPanel title="My Matches">
-          <div className="font-mono text-sm font-black uppercase text-[#ff8f7f]">
+      <section className="space-y-6 text-[#2f2f2f]">
+        <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
+          <div className="border-b border-[#bcbcbc] bg-[#ebebeb] px-4 py-3 md:px-6">
+            <div className="font-mono text-lg font-black uppercase tracking-[0.08em] text-[#363636]">
+              My Matches
+            </div>
+          </div>
+          <div className="px-4 py-4 md:px-6 md:py-6 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#9a4f4f]">
             Connect your wallet to see matches you joined.
           </div>
-        </PixelPanel>
+        </section>
       </section>
     );
   }
 
   return (
-    <section className="space-y-6">
-      <section className="border-y-4 border-[#0f1645] bg-[#3f8cff]/20 px-4 py-8 shadow-[0_6px_0_0_#0f1645] md:px-8">
-        <div className="max-w-3xl space-y-3">
-          <div className="font-mono text-sm font-black uppercase tracking-[0.2em] text-[#ffbf3f]">My Matches</div>
-          <h1 className="font-mono text-3xl font-black uppercase tracking-tight text-white md:text-5xl">
+    <section className="space-y-6 text-[#2f2f2f]">
+      <section className="border border-[#a8a8a8] bg-[#f1f1f1]">
+        <div className="h-1 w-full bg-[linear-gradient(90deg,#8f83ff_0%,#7ed8ff_50%,#8f83ff_100%)]" />
+        <div className="px-4 py-6 md:px-8 md:py-7">
+          <div className="max-w-3xl space-y-3">
+            <div className="inline-flex border border-[#9d9d9d] bg-[#e7e7e7] px-3 py-1 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#525252]">
+              My Matches
+            </div>
+            <h1 className="font-mono text-3xl font-black uppercase tracking-[0.06em] text-[#2b2b2b] md:text-5xl">
             Track And Manage Your Matches
-          </h1>
-          <p className="font-mono text-sm font-bold leading-6 text-slate-100 md:text-base">
-            Review all matches where you are subscribed and manage live swaps during ongoing battles.
-          </p>
+            </h1>
+            <p className="font-mono text-sm font-bold leading-6 text-[#4d4d4d] md:text-base">
+              Review all matches where you are subscribed and manage live swaps during ongoing battles.
+            </p>
+          </div>
         </div>
       </section>
 
-      <PixelPanel title="My Match List">
-        <div className="space-y-4">
+      <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
+        <div className="border-b border-[#bcbcbc] bg-[#ebebeb] px-4 py-3 md:px-6">
+          <div className="font-mono text-lg font-black uppercase tracking-[0.08em] text-[#363636]">
+            My Match List
+          </div>
+        </div>
+        <div className="space-y-4 px-4 py-4 md:px-6 md:py-6">
           <div className="flex flex-wrap gap-2">
-            <PixelTab active={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>
+            <button type="button" className={filterTabClass(statusFilter === 'all')} onClick={() => setStatusFilter('all')}>
               All
-            </PixelTab>
-            <PixelTab active={statusFilter === 'to-start'} onClick={() => setStatusFilter('to-start')}>
+            </button>
+            <button type="button" className={filterTabClass(statusFilter === 'to-start')} onClick={() => setStatusFilter('to-start')}>
               To Start
-            </PixelTab>
-            <PixelTab active={statusFilter === 'ongoing'} onClick={() => setStatusFilter('ongoing')}>
+            </button>
+            <button type="button" className={filterTabClass(statusFilter === 'ongoing')} onClick={() => setStatusFilter('ongoing')}>
               Ongoing
-            </PixelTab>
-            <PixelTab active={statusFilter === 'finished'} onClick={() => setStatusFilter('finished')}>
+            </button>
+            <button type="button" className={filterTabClass(statusFilter === 'finished')} onClick={() => setStatusFilter('finished')}>
               Finished
-            </PixelTab>
+            </button>
           </div>
 
           {error ? (
-            <div className="border-4 border-[#4a261a] bg-[#6f3b1e] px-4 py-3 font-mono text-xs font-black uppercase text-[#fff2cf]">
+            <div className="border border-[#d4a2a2] bg-[#f8e6e6] px-4 py-3 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#8a4747]">
               {error}
             </div>
           ) : null}
 
           {isLoading ? (
-            <div className="font-mono text-sm font-black uppercase text-slate-200">Loading your matches...</div>
+            <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#5a5a5a]">Loading your matches...</div>
           ) : filteredMatches.length === 0 ? (
-            <div className="font-mono text-sm font-black uppercase text-slate-300">No matches in this category.</div>
+            <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#6b6b6b]">No matches in this category.</div>
           ) : (
             <div className="space-y-4">
               {filteredMatches.map((match) => {
@@ -271,25 +294,41 @@ export default function MyMatchesPage() {
                       ? 'Undecided'
                       : formatAddress(match.currentWinner)
                     : '-';
+                const winnerLabel =
+                  match.status === 2
+                    ? match.winner.toLowerCase() === zeroAddress
+                      ? 'Tie'
+                      : formatAddress(match.winner)
+                    : currentWinnerLabel;
+                const winnerTitle = match.status === 2 ? 'Winner' : 'Current Winner';
+                const connectedAddress = address.toLowerCase();
+                const isPlayerAConnected = match.playerA.toLowerCase() === connectedAddress;
+                const isPlayerBConnected = match.playerB.toLowerCase() === connectedAddress;
+                const opponentAddress = isPlayerAConnected ? match.playerB : isPlayerBConnected ? match.playerA : null;
+                const playersLabel = opponentAddress
+                  ? `You vs ${opponentAddress.toLowerCase() === zeroAddress ? 'Waiting opponent' : formatAddress(opponentAddress)}`
+                  : `${formatAddress(match.playerA)} vs ${formatAddress(match.playerB)}`;
 
                 return (
-                  <div key={match.id.toString()} className="border-4 border-[#26315f] bg-[#131d44] px-4 py-4 shadow-[0_4px_0_0_#162141]">
-                    <div className="grid gap-3 font-mono text-sm font-bold text-white md:grid-cols-2">
-                      <div><span className="text-slate-300">Match:</span> #{match.id.toString()}</div>
-                      <div><span className="text-slate-300">Status:</span> {statusLabel}</div>
-                      <div className="md:col-span-2"><span className="text-slate-300">Assets:</span> {assetsLabel}</div>
-                      <div><span className="text-slate-300">Current Winner:</span> {currentWinnerLabel}</div>
-                      <div><span className="text-slate-300">Players:</span> {formatAddress(match.playerA)} vs {formatAddress(match.playerB)}</div>
+                  <div key={match.id.toString()} className="border border-[#b9b9b9] bg-[#f9f9f9] px-4 py-4">
+                    <div className="grid gap-3 font-mono text-sm font-bold text-[#454545] md:grid-cols-2">
+                      <div><span className="text-[#666]">Match:</span> #{match.id.toString()}</div>
+                      <div><span className="text-[#666]">Status:</span> {statusLabel}</div>
+                      <div className="md:col-span-2"><span className="text-[#666]">Assets:</span> {assetsLabel}</div>
+                      <div><span className="text-[#666]">{winnerTitle}:</span> {winnerLabel}</div>
+                      <div><span className="text-[#666]">Players:</span> {playersLabel}</div>
                       <div>
-                        <span className="text-slate-300">Buy-in:</span>{' '}
+                        <span className="text-[#666]">Buy-in:</span>{' '}
                         {compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} {buyInTokenSymbol}
                       </div>
-                      <div><span className="text-slate-300">Duration:</span> {formatDurationFromSeconds(match.duration)}</div>
+                      <div><span className="text-[#666]">Duration:</span> {formatDurationFromSeconds(match.duration)}</div>
                     </div>
 
                     {match.status === 1 ? (
-                      <div className="mt-4 border-t-4 border-[#26315f] pt-4">
-                        <div className="mb-3 font-mono text-xs font-black uppercase text-[#ffefb0]">Swap (Ongoing Match)</div>
+                      <div className="mt-4 border-t border-[#d1d1d1] pt-4">
+                        <div className="mb-3 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a]">
+                          Swap (Ongoing Match)
+                        </div>
                         <SwapPanel
                           matchId={match.id}
                           playerA={match.playerA}
@@ -309,8 +348,7 @@ export default function MyMatchesPage() {
             </div>
           )}
         </div>
-      </PixelPanel>
+      </section>
     </section>
   );
 }
-

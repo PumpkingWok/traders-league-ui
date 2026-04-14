@@ -3,12 +3,7 @@ import { type ReactNode } from 'react';
 export function PixelBackground() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,#2f7cf4_0%,#58a7ff_35%,#74c0ff_55%,#2b5fcf_56%,#1d2f71_100%)]" />
-      <div className="absolute inset-x-0 top-[86px] h-[360px] bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_18px,rgba(255,255,255,0.18)_18px,rgba(255,255,255,0.18)_22px)] opacity-60" />
-      <div className="absolute left-0 top-[320px] h-10 w-full bg-[#b84a38] shadow-[0_4px_0_0_#6e241a]" />
-      <div className="absolute left-0 top-[360px] h-[520px] w-full bg-[repeating-linear-gradient(to_right,#233160_0,#233160_22px,#2a396c_22px,#2a396c_44px)] opacity-70" />
-      <div className="absolute left-0 top-[720px] h-24 w-24 border-y-4 border-r-4 border-[#5a241c] bg-[#cf7d4c]" />
-      <div className="absolute right-6 top-[700px] h-24 w-28 border-y-4 border-l-4 border-[#5a241c] bg-[#cf7d4c]" />
+      <div className="absolute inset-0 bg-[#e3e3e3]" />
     </div>
   );
 }

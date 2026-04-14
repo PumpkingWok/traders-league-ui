@@ -2,9 +2,13 @@ import { useEffect, useMemo } from 'react';
 import { parseUnits, type Address } from 'viem';
 import { useAccount, useChainId, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { erc20AllowanceAbi, hyperDuelAbi } from '../config/abis';
-import { hyperDuelContractByChainId, tokenIndexByChainId, zeroAddress } from '../config/contracts';
+import {
+  hyperDuelContractByChainId,
+  tokenDisplayDecimalsByChainId,
+  tokenIndexByChainId,
+  zeroAddress,
+} from '../config/contracts';
 import { formatSpotPriceLabel } from '../utils/format';
-import { PanelLabel, PixelButton, PixelInput, PixelSelectButton, PixelSlider, PixelToggleChip } from './pixel';
 import { type MatchCreationMode } from '../types/match';
 
 const buyInRange = {
@@ -18,6 +22,28 @@ const durationRange = {
   max: 72,
   step: 1,
 };
+
+function getErrorText(error: unknown, depth = 0): string {
+  if (!error || depth > 3) return '';
+  if (typeof error === 'string') return error;
+  if (typeof error !== 'object') return '';
+
+  const value = error as { shortMessage?: unknown; message?: unknown; cause?: unknown };
+  const ownText = [value.shortMessage, value.message].filter((part): part is string => typeof part === 'string').join(' ');
+  const causeText = getErrorText(value.cause, depth + 1);
+  return `${ownText} ${causeText}`.trim();
+}
+
+function isUserRejectedError(error: unknown): boolean {
+  const text = getErrorText(error).toLowerCase();
+  return (
+    text.includes('user rejected') ||
+    text.includes('user denied') ||
+    text.includes('denied transaction signature') ||
+    text.includes('rejected the request') ||
+    text.includes('request rejected')
+  );
+}
 
 export function CreateMatchModal({
   isOpen,
@@ -34,6 +60,7 @@ export function CreateMatchModal({
   onDurationChange,
   onMatchCreationModeChange,
   onReservedOpponentAddressChange,
+  onCreated,
   onClose,
 }: {
   isOpen: boolean;
@@ -50,11 +77,13 @@ export function CreateMatchModal({
   onDurationChange: (duration: number) => void;
   onMatchCreationModeChange: (value: MatchCreationMode) => void;
   onReservedOpponentAddressChange: (value: string) => void;
+  onCreated: () => void;
   onClose: () => void;
 }) {
   const chainId = useChainId();
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
   const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};
+  const tokenDecimalsOverrideByLabel = tokenDisplayDecimalsByChainId[chainId] ?? {};
   const { isConnected, address } = useAccount();
   const {
     data: createMatchHash,
@@ -153,17 +182,23 @@ export function CreateMatchModal({
 
   const tokenDecimalsByAssetLabel = useMemo(() => {
     return availableAssets.reduce<Record<string, number | null>>((accumulator, asset, index) => {
+      const overrideDecimals = tokenDecimalsOverrideByLabel[asset.label];
+      if (overrideDecimals !== undefined) {
+        accumulator[asset.label] = overrideDecimals;
+        return accumulator;
+      }
       const result = tokenDecimalsData?.[index]?.result;
       accumulator[asset.label] = typeof result === 'number' ? result : null;
       return accumulator;
     }, {});
-  }, [availableAssets, tokenDecimalsData]);
+  }, [availableAssets, tokenDecimalsData, tokenDecimalsOverrideByLabel]);
 
   useEffect(() => {
     if (isCreateConfirmed) {
+      onCreated();
       onClose();
     }
-  }, [isCreateConfirmed, onClose]);
+  }, [isCreateConfirmed, onClose, onCreated]);
 
   useEffect(() => {
     if (!isApproveConfirmed) return;
@@ -220,190 +255,251 @@ export function CreateMatchModal({
     });
   };
 
+  const modeButtonClass = (active: boolean) =>
+    `border px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
+      active
+        ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98]'
+        : 'border-[#b9b9b9] bg-[#f8f8f8] text-[#4d4d4d] hover:bg-[#eeeeee]'
+    }`;
+
   return (
-    <div className="fixed inset-0 z-40 overflow-y-auto bg-[#0d1a3f]/80 px-4 py-8">
+    <div className="fixed inset-0 z-40 overflow-y-auto bg-black/30 px-4 py-8">
       <div className="flex min-h-full items-start justify-center">
-        <div className="w-full max-w-xl border-4 border-[#4a261a] bg-[#20325f] shadow-[0_8px_0_0_#3a1d14]">
-        <div className="flex items-center justify-between gap-4 border-b-4 border-[#4a261a] bg-[#6f3b1e] px-4 py-3 md:px-5">
-          <div>
-            <div className="font-mono text-2xl font-black uppercase text-[#ffd88a]">Create Match</div>
-            <div className="font-mono text-xs font-bold uppercase text-[#fff2cf]">
-              Choose your buy-in and match duration
+        <div className="w-full max-w-xl border border-[#ababab] bg-[#f5f5f5] text-[#2f2f2f] shadow-[0_12px_30px_rgba(0,0,0,0.18)]">
+          <div className="flex items-center justify-between gap-4 border-b border-[#bdbdbd] bg-[#ebebeb] px-4 py-3 md:px-5">
+            <div>
+              <div className="font-mono text-2xl font-black uppercase tracking-[0.08em] text-[#2f2f2f]">Create Match</div>
+              <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#6a6a6a]">
+                Choose your buy-in and match duration
+              </div>
             </div>
+            <button
+              type="button"
+              className="border border-[#b9b9b9] bg-[#f7f7f7] px-3 py-1 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec]"
+              onClick={onClose}
+            >
+              Close
+            </button>
           </div>
-          <PixelButton variant="blue" className="px-3 py-1 text-sm" onClick={onClose}>
-            Close
-          </PixelButton>
-        </div>
 
-        <div className="space-y-6 p-4 md:p-5">
-          <div>
-            <PanelLabel>Allowed Assets</PanelLabel>
-            <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="space-y-6 p-4 md:p-5">
+            <div>
+              <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4f4f4f]">Allowed Assets</div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
               {availableAssets.map((asset) => (
-                <PixelToggleChip
-                  key={asset.label}
-                  label={asset.label}
-                  subtitle={formatSpotPriceLabel(spotPriceByAssetLabel[asset.label], tokenDecimalsByAssetLabel[asset.label])}
-                  dotClass={asset.color}
-                  active={selectedAssets.includes(asset.label)}
-                  onClick={() => onAssetsChange(asset.label)}
-                />
+                  <button
+                    key={asset.label}
+                    type="button"
+                    onClick={() => onAssetsChange(asset.label)}
+                    className={`flex items-center justify-between gap-2 border px-3 py-2 text-left font-mono text-sm font-black uppercase tracking-[0.08em] ${
+                      selectedAssets.includes(asset.label)
+                        ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98]'
+                        : 'border-[#b9b9b9] bg-[#f9f9f9] text-[#4f4f4f] hover:bg-[#efefef]'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className={`h-3 w-3 border border-black ${asset.color}`} />
+                      <span>{asset.label}</span>
+                    </span>
+                    <span className="text-[10px] font-bold normal-case tracking-normal text-[#666]">
+                      {formatSpotPriceLabel(spotPriceByAssetLabel[asset.label], tokenDecimalsByAssetLabel[asset.label])}
+                    </span>
+                  </button>
               ))}
-            </div>
-            {availableAssets.length === 0 ? (
-              <p className="mt-3 font-mono text-xs font-bold leading-5 text-[#ff8f7f]">
-                No token index mapping configured for this network yet.
-              </p>
-            ) : null}
-          </div>
-
-          <div>
-            <PanelLabel>Creation Mode</PanelLabel>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <PixelSelectButton active={matchCreationMode === 'empty'} onClick={() => onMatchCreationModeChange('empty')}>
-                Empty Match
-              </PixelSelectButton>
-              <PixelSelectButton
-                active={matchCreationMode === 'creator-joins'}
-                onClick={() => onMatchCreationModeChange('creator-joins')}
-              >
-                Creator Joins As Player A
-              </PixelSelectButton>
-              <PixelSelectButton active={matchCreationMode === 'reserved'} onClick={() => onMatchCreationModeChange('reserved')}>
-                Reserved Match
-              </PixelSelectButton>
-            </div>
-            <p className="mt-3 font-mono text-xs font-bold leading-5 text-slate-300">
-              Choose whether the match starts empty, starts with the creator as Player A, or is created with both Player A and Player B pre-set.
-            </p>
-            {isReservedMatch ? (
-              <div className="mt-3 space-y-2">
-                <PixelInput
-                  placeholder="0x... Player B address"
-                  value={reservedOpponentAddress}
-                  onChange={onReservedOpponentAddressChange}
-                />
-                {trimmedReservedOpponentAddress && !reservedAddressIsValid ? (
-                  <p className="font-mono text-xs font-bold leading-5 text-[#ff8f7f]">
-                    Enter a valid wallet address to create a reserved match.
-                  </p>
-                ) : null}
-                <p className="font-mono text-xs font-bold leading-5 text-slate-300">
-                  Your wallet is set as Player A, and this address is set as Player B at creation.
+              </div>
+              {availableAssets.length === 0 ? (
+                <p className="mt-3 font-mono text-xs font-bold leading-5 text-[#9a4f4f]">
+                  No token index mapping configured for this network yet.
                 </p>
+              ) : null}
+            </div>
+
+            <div>
+              <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4f4f4f]">Creation Mode</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" className={modeButtonClass(matchCreationMode === 'empty')} onClick={() => onMatchCreationModeChange('empty')}>
+                  Empty Match
+                </button>
+                <button
+                  type="button"
+                  className={modeButtonClass(matchCreationMode === 'creator-joins')}
+                  onClick={() => onMatchCreationModeChange('creator-joins')}
+                >
+                  Creator Joins As Player A
+                </button>
+                <button type="button" className={modeButtonClass(matchCreationMode === 'reserved')} onClick={() => onMatchCreationModeChange('reserved')}>
+                  Reserved Match
+                </button>
               </div>
-            ) : (
-              <p className="mt-3 font-mono text-xs font-bold leading-5 text-slate-300">
-                Player B remains open, so any valid wallet can join once the match is created.
+              <p className="mt-3 font-mono text-xs font-bold leading-5 text-[#5f5f5f]">
+                Choose whether the match starts empty, starts with the creator as Player A, or is created with both Player A and Player B pre-set.
               </p>
-            )}
-          </div>
-
-          <div>
-            <PanelLabel>Buy-in (USDC)</PanelLabel>
-            {buyInBalanceLabel ? (
-              <div className="mt-2 font-mono text-xs font-bold uppercase text-[#ffefb0]">
-                Your balance: {buyInBalanceLabel}
-              </div>
-            ) : null}
-            <div className="mt-3">
-              <PixelSlider
-                min={buyInRange.min}
-                max={buyInRange.max}
-                step={buyInRange.step}
-                value={selectedBuyIn}
-                onChange={onBuyInChange}
-                valueLabel={`${selectedBuyIn} USDC`}
-              />
+              {isReservedMatch ? (
+                <div className="mt-3 space-y-2">
+                  <input
+                    className="w-full border border-[#b9b9b9] bg-[#f9f9f9] px-3 py-2 font-mono text-sm font-bold text-[#404040] outline-none placeholder:text-[#999]"
+                    placeholder="0x... Player B address"
+                    value={reservedOpponentAddress}
+                    onChange={(event) => onReservedOpponentAddressChange(event.target.value)}
+                  />
+                  {trimmedReservedOpponentAddress && !reservedAddressIsValid ? (
+                    <p className="font-mono text-xs font-bold leading-5 text-[#9a4f4f]">
+                      Enter a valid wallet address to create a reserved match.
+                    </p>
+                  ) : null}
+                  <p className="font-mono text-xs font-bold leading-5 text-[#5f5f5f]">
+                    Your wallet is set as Player A, and this address is set as Player B at creation.
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 font-mono text-xs font-bold leading-5 text-[#5f5f5f]">
+                  Player B remains open, so any valid wallet can join once the match is created.
+                </p>
+              )}
             </div>
-          </div>
 
-          <div>
-            <PanelLabel>Duration</PanelLabel>
-            <div className="mt-3">
-              <PixelSlider
-                min={durationRange.min}
-                max={durationRange.max}
-                step={durationRange.step}
-                value={selectedDurationHours}
-                onChange={onDurationChange}
-                valueLabel={selectedDuration}
-              />
-            </div>
-          </div>
-
-          <div className="border-4 border-[#26315f] bg-[#131d44] px-4 py-4 shadow-[0_4px_0_0_#162141]">
-            <div className="font-mono text-sm font-black uppercase text-[#ffefb0]">Match Summary</div>
-            <div className="mt-3 grid gap-3 font-mono text-sm font-bold text-white sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <span className="text-slate-300">Allowed assets:</span> {selectedAssets.join(' • ')}
-              </div>
-              <div className="sm:col-span-2">
-                <span className="text-slate-300">Mode:</span>{' '}
-                {matchCreationMode === 'empty'
-                  ? 'Empty match, no player joins at creation'
-                  : matchCreationMode === 'creator-joins'
-                    ? 'Creator joins immediately as Player A'
-                    : 'Reserved match with Player A and Player B pre-set'}
-              </div>
-              <div className="sm:col-span-2">
-                <span className="text-slate-300">Player B:</span>{' '}
-                {isReservedMatch
-                  ? `Reserved for ${reservedOpponentAddress || 'a selected address'}`
-                  : 'Open to any valid player later'}
-              </div>
-              <div>
-                <span className="text-slate-300">Buy-in:</span> {selectedBuyIn} USDC
-              </div>
-              <div>
-                <span className="text-slate-300">Duration:</span> {selectedDuration}
+            <div>
+              <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4f4f4f]">Buy-in (USDC)</div>
+              {buyInBalanceLabel ? (
+                <div className="mt-2 font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#5f5f5f]">
+                  Your balance: {buyInBalanceLabel}
+                </div>
+              ) : null}
+              <div className="mt-3 border border-[#b9b9b9] bg-[#f9f9f9] px-3 py-3">
+                <div className="mb-2 flex items-center justify-between font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5f5f5f]">
+                  <span>{buyInRange.min}</span>
+                  <span className="text-sm text-[#3f3f3f]">{selectedBuyIn} USDC</span>
+                  <span>{buyInRange.max}</span>
+                </div>
+                <input
+                  className="slider h-3 w-full cursor-pointer appearance-none border border-[#b9b9b9] bg-[#e8e8e8]"
+                  type="range"
+                  min={buyInRange.min}
+                  max={buyInRange.max}
+                  step={buyInRange.step}
+                  value={selectedBuyIn}
+                  onChange={(event) => onBuyInChange(Number(event.target.value))}
+                />
               </div>
             </div>
-          </div>
 
-          <div className="border-4 border-[#26315f] bg-[#10173a] px-4 py-3 font-mono text-xs font-bold uppercase text-slate-200 shadow-[0_4px_0_0_#162141]">
-            <div>Contract: {hyperDuelContractAddress}</div>
-            <div className="mt-2">
-              Action: createMatch(playerA, playerB, tokensAllowed, buyIn, duration)
+            <div>
+              <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4f4f4f]">Duration</div>
+              <div className="mt-3 border border-[#b9b9b9] bg-[#f9f9f9] px-3 py-3">
+                <div className="mb-2 flex items-center justify-between font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5f5f5f]">
+                  <span>{durationRange.min}</span>
+                  <span className="text-sm text-[#3f3f3f]">{selectedDuration}</span>
+                  <span>{durationRange.max}</span>
+                </div>
+                <input
+                  className="slider h-3 w-full cursor-pointer appearance-none border border-[#b9b9b9] bg-[#e8e8e8]"
+                  type="range"
+                  min={durationRange.min}
+                  max={durationRange.max}
+                  step={durationRange.step}
+                  value={selectedDurationHours}
+                  onChange={(event) => onDurationChange(Number(event.target.value))}
+                />
+              </div>
             </div>
-            {!isConnected ? <div className="mt-2 text-[#ff8f7f]">Connect a wallet to create a match.</div> : null}
-            {isConnected && !hyperDuelContractAddress ? (
-              <div className="mt-2 text-[#ff8f7f]">No HyperDuel contract configured for this network.</div>
-            ) : null}
-            {isConnected && requiresAllowance && !hasEnoughAllowance ? (
-              <div className="mt-2 text-[#ff8f7f]">Approve buy-in token before creating this match.</div>
-            ) : null}
-            {hasUnknownAssetSelection ? (
-              <div className="mt-2 text-[#ff8f7f]">One or more selected assets is missing a contract token id mapping.</div>
-            ) : null}
-            {approveError ? <div className="mt-2 break-all text-[#ff8f7f]">{approveError.message}</div> : null}
-            {createMatchError ? <div className="mt-2 break-all text-[#ff8f7f]">{createMatchError.message}</div> : null}
-            {approveHash ? <div className="mt-2 break-all text-[#7fffb2]">Approve Tx: {approveHash}</div> : null}
-            {createMatchHash ? <div className="mt-2 break-all text-[#7fffb2]">Match Tx: {createMatchHash}</div> : null}
-            {isConfirmingApprove ? <div className="mt-2 text-[#ffefb0]">Waiting for approve confirmation...</div> : null}
-            {isConfirmingCreate ? <div className="mt-2 text-[#ffefb0]">Waiting for match confirmation...</div> : null}
-          </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <PixelButton variant="blue" onClick={onClose}>
-              Cancel
-            </PixelButton>
-            {requiresAllowance && !hasEnoughAllowance ? (
-              <PixelButton variant="green" onClick={handleApproveToken} disabled={!canApprove}>
-                {isApprovePending
-                  ? 'Confirm Approve In Wallet'
-                  : isConfirmingApprove
-                    ? 'Approving Token...'
-                    : 'Approve Token'}
-              </PixelButton>
-            ) : null}
-            <PixelButton variant="gold" onClick={handleConfirmMatch} disabled={!canSubmit}>
-              {isCreatePending ? 'Confirm In Wallet' : isConfirmingCreate ? 'Creating Match...' : 'Confirm Match'}
-            </PixelButton>
+            <div className="border border-[#b9b9b9] bg-[#f9f9f9] px-4 py-4">
+              <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4f4f4f]">Match Summary</div>
+              <div className="mt-3 grid gap-3 font-mono text-sm font-bold text-[#454545] sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <span className="text-[#666]">Allowed assets:</span> {selectedAssets.join(' • ')}
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-[#666]">Mode:</span>{' '}
+                  {matchCreationMode === 'empty'
+                    ? 'Empty match, no player joins at creation'
+                    : matchCreationMode === 'creator-joins'
+                      ? 'Creator joins immediately as Player A'
+                      : 'Reserved match with Player A and Player B pre-set'}
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-[#666]">Player B:</span>{' '}
+                  {isReservedMatch
+                    ? `Reserved for ${reservedOpponentAddress || 'a selected address'}`
+                    : 'Open to any valid player later'}
+                </div>
+                <div>
+                  <span className="text-[#666]">Buy-in:</span> {selectedBuyIn} USDC
+                </div>
+                <div>
+                  <span className="text-[#666]">Duration:</span> {selectedDuration}
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-[#b9b9b9] bg-[#f1f1f1] px-4 py-3 font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#5e5e5e]">
+              <div>Contract: {hyperDuelContractAddress}</div>
+              <div className="mt-2">
+                Action: createMatch(playerA, playerB, tokensAllowed, buyIn, duration)
+              </div>
+              {!isConnected ? <div className="mt-2 text-[#9a4f4f]">Connect a wallet to create a match.</div> : null}
+              {isConnected && !hyperDuelContractAddress ? (
+                <div className="mt-2 text-[#9a4f4f]">No HyperDuel contract configured for this network.</div>
+              ) : null}
+              {isConnected && requiresAllowance && !hasEnoughAllowance ? (
+                <div className="mt-2 text-[#9a4f4f]">Approve buy-in token before creating this match.</div>
+              ) : null}
+              {hasUnknownAssetSelection ? (
+                <div className="mt-2 text-[#9a4f4f]">One or more selected assets is missing a contract token id mapping.</div>
+              ) : null}
+              {approveError && !isUserRejectedError(approveError) ? (
+                <div className="mt-2 break-all text-[#9a4f4f]">{approveError.message}</div>
+              ) : null}
+              {createMatchError && !isUserRejectedError(createMatchError) ? (
+                <div className="mt-2 break-all text-[#9a4f4f]">{createMatchError.message}</div>
+              ) : null}
+              {approveHash ? <div className="mt-2 break-all text-[#447056]">Approve Tx: {approveHash}</div> : null}
+              {createMatchHash ? <div className="mt-2 break-all text-[#447056]">Match Tx: {createMatchHash}</div> : null}
+              {isConfirmingApprove ? <div className="mt-2 text-[#6a6194]">Waiting for approve confirmation...</div> : null}
+              {isConfirmingCreate ? <div className="mt-2 text-[#6a6194]">Waiting for match confirmation...</div> : null}
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="border border-[#b9b9b9] bg-[#f7f7f7] px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec]"
+                onClick={onClose}
+              >
+                Cancel
+              </button>
+              {requiresAllowance && !hasEnoughAllowance ? (
+                <button
+                  type="button"
+                  className={`border px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
+                    canApprove
+                      ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98] hover:bg-[#e3deff]'
+                      : 'cursor-not-allowed border-[#c8c8c8] bg-[#f1f1f1] text-[#9a9a9a]'
+                  }`}
+                  onClick={handleApproveToken}
+                  disabled={!canApprove}
+                >
+                  {isApprovePending
+                    ? 'Confirm Approve In Wallet'
+                    : isConfirmingApprove
+                      ? 'Approving Token...'
+                      : 'Approve Token'}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={`border px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
+                  canSubmit
+                    ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98] hover:bg-[#e3deff]'
+                    : 'cursor-not-allowed border-[#c8c8c8] bg-[#f1f1f1] text-[#9a9a9a]'
+                }`}
+                onClick={handleConfirmMatch}
+                disabled={!canSubmit}
+              >
+                {isCreatePending ? 'Confirm In Wallet' : isConfirmingCreate ? 'Creating Match...' : 'Confirm Match'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
       </div>
     </div>
   );

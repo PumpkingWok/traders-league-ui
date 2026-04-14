@@ -23,6 +23,13 @@ export const hyperDuelAbi = [
   },
   {
     type: 'function',
+    name: 'concludeMatch',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: '_matchId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'swap',
     stateMutability: 'nonpayable',
     inputs: [
@@ -46,6 +53,13 @@ export const hyperDuelAbi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'platformFee',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
   },
   {
     type: 'function',
