@@ -14,9 +14,17 @@ export function MatchRow({
   hideCountdownAndWinner: boolean;
 }) {
   const alreadyJoined = Boolean(match.isJoined);
-  const canJoin = match.statusCode === 0 && !alreadyJoined;
+  const canJoin = match.canJoin ?? (match.statusCode === 0 && !alreadyJoined);
   const canConclude = Boolean(match.canConclude);
-  const actionLabel = canConclude ? (match.isConcluding ? 'Concluding...' : 'Conclude') : alreadyJoined ? 'Joined' : 'Join';
+  const actionLabel = canConclude
+    ? (match.isConcluding ? 'Concluding...' : 'Conclude')
+    : match.isReservedForYou
+      ? 'Reserved To You'
+      : alreadyJoined
+        ? 'Joined'
+        : match.matchType === 'Reserved' && !canJoin
+          ? 'Reserved'
+          : 'Join';
   const actionOnClick = canConclude ? onConclude : onJoin;
   const actionDisabled = canConclude ? Boolean(match.isConcluding) : !canJoin;
   const actionClassName = canConclude
@@ -34,6 +42,7 @@ export function MatchRow({
       <div className="whitespace-nowrap">{match.assets}</div>
       <div className="whitespace-nowrap">{match.buyIn}</div>
       <div className="whitespace-nowrap">{match.prize ?? '-'}</div>
+      <div className="whitespace-nowrap">{match.matchType ?? 'Public'}</div>
       <div>{match.duration}</div>
       {!hideCountdownAndWinner ? <div className="tabular-nums">{match.countdown ?? '-'}</div> : null}
       <div>{match.players}</div>

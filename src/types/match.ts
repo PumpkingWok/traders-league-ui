@@ -6,6 +6,7 @@ export type Match = {
   id: string;
   matchId: bigint;
   buyInRaw: bigint;
+  matchType?: 'Public' | 'Reserved';
   assets: string;
   buyIn: string;
   prize?: string;
@@ -16,6 +17,8 @@ export type Match = {
   status: string;
   winner: string;
   isJoined?: boolean;
+  canJoin?: boolean;
+  isReservedForYou?: boolean;
   canConclude?: boolean;
   isConcluding?: boolean;
 };

@@ -56,7 +56,7 @@ export default function MatchesPage({
   const [isLoadingMatches, setIsLoadingMatches] = useState(false);
   const [matchesError, setMatchesError] = useState<string | null>(null);
   const [selectedMatchToJoin, setSelectedMatchToJoin] = useState<Match | null>(null);
-  const [matchFilter, setMatchFilter] = useState<'to-start' | 'current' | 'finish' | 'all'>('current');
+  const [matchFilter, setMatchFilter] = useState<'to-start' | 'current' | 'finish' | 'all'>('to-start');
   const [sortBy, setSortBy] = useState<'duration' | 'buyIn'>('duration');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
@@ -65,8 +65,8 @@ export default function MatchesPage({
   const [isPrizeInfoOpen, setIsPrizeInfoOpen] = useState(false);
   const hideCountdownAndWinner = matchFilter === 'to-start';
   const matchTableGridTemplate = hideCountdownAndWinner
-    ? 'repeat(8, minmax(0, 1fr))'
-    : 'repeat(10, minmax(0, 1fr))';
+    ? 'repeat(9, minmax(0, 1fr))'
+    : 'repeat(11, minmax(0, 1fr))';
   const { data: concludeMatchHash, error: concludeMatchError, isPending: isConcludePending, writeContract: writeConcludeMatch } = useWriteContract();
   const { isLoading: isConcludeConfirming, isSuccess: isConcludeConfirmed } = useWaitForTransactionReceipt({
     hash: concludeMatchHash,
@@ -261,6 +261,18 @@ export default function MatchesPage({
     };
   }, [hyperDuelContractAddress, latestMatchIdData, matchesReloadNonce, publicClient]);
 
+  useEffect(() => {
+    if (matchFilter !== 'to-start') return;
+    if (contractMatches.length === 0) return;
+
+    const hasToStartMatches = contractMatches.some((match) => match.status === 0);
+    const hasVisibleMatches = contractMatches.some((match) => match.status !== 3);
+
+    if (!hasToStartMatches && hasVisibleMatches) {
+      setMatchFilter('all');
+    }
+  }, [contractMatches, matchFilter]);
+
   const displayMatches = useMemo(() => {
     const connectedAddress = address?.toLowerCase();
     const tokenLabelById = Object.entries(tokenIndexMap).reduce<Record<number, string>>((accumulator, [label, id]) => {
@@ -296,9 +308,14 @@ export default function MatchesPage({
     });
 
     return sorted.map((match) => {
-      const isJoined =
-        Boolean(connectedAddress) &&
-        (match.playerA.toLowerCase() === connectedAddress || match.playerB.toLowerCase() === connectedAddress);
+      const isPlayerAConnected = Boolean(connectedAddress) && match.playerA.toLowerCase() === connectedAddress;
+      const isPlayerBConnected = Boolean(connectedAddress) && match.playerB.toLowerCase() === connectedAddress;
+      const isReservedMatch = match.status === 0 && match.playerB.toLowerCase() !== zeroAddress;
+      const isReservedForYou = isReservedMatch && isPlayerBConnected;
+      const isJoined = Boolean(isPlayerAConnected || (isPlayerBConnected && !isReservedForYou));
+      const canJoin =
+        (match.status === 0 && match.playerB.toLowerCase() === zeroAddress && !isJoined) || isReservedForYou;
+      const matchType: 'Public' | 'Reserved' = isReservedMatch ? 'Reserved' : 'Public';
       const playersCount = Number(match.playerA.toLowerCase() !== zeroAddress) + Number(match.playerB.toLowerCase() !== zeroAddress);
       const statusLabel = match.status === 0 ? 'To Start' : match.status === 1 ? 'Ongoing' : 'Finished';
       const assetsLabel =
@@ -338,6 +355,7 @@ export default function MatchesPage({
         assets: assetsLabel,
         buyIn: `${compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} ${buyInTokenSymbol}`,
         prize: `${compactNumber(formatUnits(netPrize, buyInTokenDecimals))} ${buyInTokenSymbol}`,
+        matchType,
         duration: formatDurationFromSeconds(match.duration),
         countdown: countdownLabel,
         players: `${playersCount}/2`,
@@ -345,6 +363,8 @@ export default function MatchesPage({
         status: statusLabel,
         winner: winnerLabel,
         isJoined,
+        canJoin,
+        isReservedForYou,
         canConclude,
         isConcluding,
       };
@@ -479,6 +499,7 @@ export default function MatchesPage({
                     </div>
                   ) : null}
                 </div>
+                <div>Type</div>
                 <div>Duration</div>
                 {!hideCountdownAndWinner ? <div>Countdown</div> : null}
                 <div>Players</div>

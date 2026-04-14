@@ -1,10 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { parseUnits, type Address } from 'viem';
-import { useAccount, useChainId, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { erc20AllowanceAbi, hyperDuelAbi } from '../config/abis';
 import {
   hyperDuelContractByChainId,
-  tokenDisplayDecimalsByChainId,
   tokenIndexByChainId,
   zeroAddress,
 } from '../config/contracts';
@@ -81,10 +80,12 @@ export function CreateMatchModal({
   onClose: () => void;
 }) {
   const chainId = useChainId();
+  const publicClient = usePublicClient({ chainId });
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
   const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};
-  const tokenDecimalsOverrideByLabel = tokenDisplayDecimalsByChainId[chainId] ?? {};
   const { isConnected, address } = useAccount();
+  const [fallbackSpotByAssetLabel, setFallbackSpotByAssetLabel] = useState<Record<string, bigint | null>>({});
+  const [fallbackDecimalsByAssetLabel, setFallbackDecimalsByAssetLabel] = useState<Record<string, number | null>>({});
   const {
     data: createMatchHash,
     error: createMatchError,
@@ -142,18 +143,19 @@ export function CreateMatchModal({
     },
   });
 
-  const { data: spotPricesData } = useReadContracts({
+  const { data: tokenPricesData } = useReadContracts({
     contracts:
       hyperDuelContractAddress && availableAssets.length > 0
         ? availableAssets.map((asset) => ({
             address: hyperDuelContractAddress,
+            chainId,
             abi: hyperDuelAbi,
-            functionName: 'spotPx',
-            args: [asset.index],
+            functionName: 'tokenPx',
+            args: [tokenIndexMap[asset.label] ?? asset.index],
           }))
         : [],
     query: {
-      enabled: Boolean(hyperDuelContractAddress && availableAssets.length > 0),
+      enabled: Boolean(isOpen && hyperDuelContractAddress && availableAssets.length > 0),
     },
   });
 
@@ -162,36 +164,148 @@ export function CreateMatchModal({
       hyperDuelContractAddress && availableAssets.length > 0
         ? availableAssets.map((asset) => ({
             address: hyperDuelContractAddress,
+            chainId,
             abi: hyperDuelAbi,
             functionName: 'tradingTokens',
-            args: [asset.index],
+            args: [tokenIndexMap[asset.label] ?? asset.index],
           }))
         : [],
     query: {
-      enabled: Boolean(hyperDuelContractAddress && availableAssets.length > 0),
+      enabled: Boolean(isOpen && hyperDuelContractAddress && availableAssets.length > 0),
     },
   });
 
   const spotPriceByAssetLabel = useMemo(() => {
     return availableAssets.reduce<Record<string, bigint | null>>((accumulator, asset, index) => {
-      const result = spotPricesData?.[index]?.result;
-      accumulator[asset.label] = typeof result === 'bigint' ? result : null;
+      const result = tokenPricesData?.[index]?.result;
+      if (typeof result === 'bigint') {
+        accumulator[asset.label] = result;
+      } else if (typeof result === 'number' && Number.isFinite(result)) {
+        accumulator[asset.label] = BigInt(result);
+      } else {
+        accumulator[asset.label] = null;
+      }
       return accumulator;
     }, {});
-  }, [availableAssets, spotPricesData]);
+  }, [availableAssets, tokenPricesData]);
 
   const tokenDecimalsByAssetLabel = useMemo(() => {
     return availableAssets.reduce<Record<string, number | null>>((accumulator, asset, index) => {
-      const overrideDecimals = tokenDecimalsOverrideByLabel[asset.label];
-      if (overrideDecimals !== undefined) {
-        accumulator[asset.label] = overrideDecimals;
-        return accumulator;
-      }
       const result = tokenDecimalsData?.[index]?.result;
-      accumulator[asset.label] = typeof result === 'number' ? result : null;
+      if (typeof result === 'number' && Number.isFinite(result)) {
+        accumulator[asset.label] = result;
+      } else if (typeof result === 'bigint') {
+        accumulator[asset.label] = Number(result);
+      } else {
+        accumulator[asset.label] = null;
+      }
       return accumulator;
     }, {});
-  }, [availableAssets, tokenDecimalsData, tokenDecimalsOverrideByLabel]);
+  }, [availableAssets, tokenDecimalsData]);
+
+  useEffect(() => {
+    if (!isOpen || !publicClient || !hyperDuelContractAddress || availableAssets.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const fetchMissingValues = async () => {
+      const missingAssets = availableAssets.filter((asset) => {
+        const spot = spotPriceByAssetLabel[asset.label];
+        const decimals = tokenDecimalsByAssetLabel[asset.label];
+        return spot === null || decimals === null;
+      });
+
+      if (missingAssets.length === 0) {
+        setFallbackSpotByAssetLabel({});
+        setFallbackDecimalsByAssetLabel({});
+        return;
+      }
+
+      const fallbackSpot: Record<string, bigint | null> = {};
+      const fallbackDecimals: Record<string, number | null> = {};
+
+      await Promise.all(
+        missingAssets.map(async (asset) => {
+          const tokenIndex = tokenIndexMap[asset.label] ?? asset.index;
+          if (spotPriceByAssetLabel[asset.label] === null) {
+            try {
+              const rawSpot = await publicClient.readContract({
+                address: hyperDuelContractAddress,
+                abi: hyperDuelAbi,
+                functionName: 'tokenPx',
+                args: [tokenIndex],
+              });
+              fallbackSpot[asset.label] =
+                typeof rawSpot === 'bigint'
+                  ? rawSpot
+                  : typeof rawSpot === 'number' && Number.isFinite(rawSpot)
+                    ? BigInt(rawSpot)
+                    : null;
+            } catch (error) {
+              fallbackSpot[asset.label] = null;
+            }
+          }
+
+          if (tokenDecimalsByAssetLabel[asset.label] === null) {
+            try {
+              const rawDecimals = await publicClient.readContract({
+                address: hyperDuelContractAddress,
+                abi: hyperDuelAbi,
+                functionName: 'tradingTokens',
+                args: [tokenIndex],
+              });
+              fallbackDecimals[asset.label] =
+                typeof rawDecimals === 'number' && Number.isFinite(rawDecimals)
+                  ? rawDecimals
+                  : typeof rawDecimals === 'bigint'
+                    ? Number(rawDecimals)
+                    : null;
+            } catch (error) {
+              fallbackDecimals[asset.label] = null;
+            }
+          }
+        }),
+      );
+
+      if (cancelled) return;
+      setFallbackSpotByAssetLabel(fallbackSpot);
+      setFallbackDecimalsByAssetLabel(fallbackDecimals);
+    };
+
+    void fetchMissingValues();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    availableAssets,
+    chainId,
+    hyperDuelContractAddress,
+    isOpen,
+    publicClient,
+    spotPriceByAssetLabel,
+    tokenDecimalsByAssetLabel,
+    tokenIndexMap,
+  ]);
+
+  const resolvedSpotByAssetLabel = useMemo(
+    () =>
+      availableAssets.reduce<Record<string, bigint | null>>((accumulator, asset) => {
+        accumulator[asset.label] = spotPriceByAssetLabel[asset.label] ?? fallbackSpotByAssetLabel[asset.label] ?? null;
+        return accumulator;
+      }, {}),
+    [availableAssets, fallbackSpotByAssetLabel, spotPriceByAssetLabel],
+  );
+
+  const resolvedDecimalsByAssetLabel = useMemo(
+    () =>
+      availableAssets.reduce<Record<string, number | null>>((accumulator, asset) => {
+        accumulator[asset.label] = tokenDecimalsByAssetLabel[asset.label] ?? fallbackDecimalsByAssetLabel[asset.label] ?? null;
+        return accumulator;
+      }, {}),
+    [availableAssets, fallbackDecimalsByAssetLabel, tokenDecimalsByAssetLabel],
+  );
 
   useEffect(() => {
     if (isCreateConfirmed) {
@@ -302,7 +416,7 @@ export function CreateMatchModal({
                       <span>{asset.label}</span>
                     </span>
                     <span className="text-[10px] font-bold normal-case tracking-normal text-[#666]">
-                      {formatSpotPriceLabel(spotPriceByAssetLabel[asset.label], tokenDecimalsByAssetLabel[asset.label])}
+                      {formatSpotPriceLabel(resolvedSpotByAssetLabel[asset.label], resolvedDecimalsByAssetLabel[asset.label])}
                     </span>
                   </button>
               ))}

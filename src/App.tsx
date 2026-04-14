@@ -146,13 +146,13 @@ export default function App() {
       : null;
 
   return (
-    <div className="min-h-screen bg-[#e3e3e3] text-white overflow-x-hidden">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#e3e3e3] text-white">
       <PixelBackground />
 
-      <div className="relative z-10">
+      <div className="relative z-10 flex min-h-screen flex-col">
         <Navbar buyInBalanceLabel={buyInBalanceLabel} />
 
-        <main className="mx-auto max-w-7xl px-4 pb-12 pt-6 md:px-6 lg:px-8">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-12 pt-6 md:px-6 lg:px-8">
           <Routes>
             <Route
               path="/"
@@ -176,6 +176,8 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
+
+        <Footer />
       </div>
 
       <CreateMatchModal
@@ -197,6 +199,24 @@ export default function App() {
         onClose={() => setIsCreateMatchModalOpen(false)}
       />
     </div>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="mt-auto border-t border-[#9f9f9f] bg-[#ececec] text-[#2e2e2e]">
+      <div className="h-[2px] w-full bg-[linear-gradient(90deg,#8f83ff_0%,#7ed8ff_50%,#8f83ff_100%)]" />
+      <div className="border-b border-[#b4b4b4] bg-[#f2f2f2]">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
+          <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#5f5f5f]">
+            Traders League
+          </div>
+          <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#666]">
+            Build. Trade. Conclude.
+          </div>
+        </div>
+      </div>
+    </footer>
   );
 }
 

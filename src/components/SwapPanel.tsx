@@ -4,7 +4,6 @@ import { useAccount, useChainId, usePublicClient, useReadContracts, useWaitForTr
 import { hyperDuelAbi, hyperDuelSwapEvent } from '../config/abis';
 import {
   swapHistoryLookbackBlocks,
-  tokenDisplayDecimalsByChainId,
   zeroAddress,
 } from '../config/contracts';
 import { compactNumber, formatAddress } from '../utils/format';
@@ -36,24 +35,6 @@ export function SwapPanel({
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
-  const tokenDecimalsOverrideByLabel = tokenDisplayDecimalsByChainId[chainId] ?? {};
-  const tokenIdByLabel = useMemo(
-    () =>
-      Object.entries(tokenLabelById).reduce<Record<string, number>>((accumulator, [tokenId, label]) => {
-        accumulator[label] = Number(tokenId);
-        return accumulator;
-      }, {}),
-    [tokenLabelById],
-  );
-  const tokenDecimalsOverrideById = useMemo(
-    () =>
-      Object.entries(tokenDecimalsOverrideByLabel).reduce<Record<number, number>>((accumulator, [label, decimals]) => {
-        const tokenId = tokenIdByLabel[label];
-        if (tokenId !== undefined) accumulator[tokenId] = decimals;
-        return accumulator;
-      }, {}),
-    [tokenDecimalsOverrideByLabel, tokenIdByLabel],
-  );
   const selectableTokens = useMemo(() => [0, ...tokensAllowed], [tokensAllowed]);
   const [tokenIn, setTokenIn] = useState<number>(selectableTokens[0] ?? 0);
   const [tokenOut, setTokenOut] = useState<number>(selectableTokens[1] ?? selectableTokens[0] ?? 0);
@@ -81,6 +62,7 @@ export function SwapPanel({
       hyperDuelContractAddress && tokensAllowed.length > 0
         ? tokensAllowed.map((tokenId) => ({
             address: hyperDuelContractAddress,
+            chainId,
             abi: hyperDuelAbi,
             functionName: 'tradingTokens',
             args: [tokenId],
@@ -94,16 +76,17 @@ export function SwapPanel({
   const tokenDecimalsById = useMemo(() => {
     const map: Record<number, number> = { 0: 8 };
     tokensAllowed.forEach((tokenId, index) => {
-      const overrideDecimals = tokenDecimalsOverrideById[tokenId];
-      if (overrideDecimals !== undefined) {
-        map[tokenId] = overrideDecimals;
-        return;
-      }
       const result = tokenDecimalsData?.[index]?.result;
-      map[tokenId] = typeof result === 'number' ? result : 8;
+      if (typeof result === 'number' && Number.isFinite(result)) {
+        map[tokenId] = result;
+      } else if (typeof result === 'bigint') {
+        map[tokenId] = Number(result);
+      } else {
+        map[tokenId] = 8;
+      }
     });
     return map;
-  }, [tokenDecimalsData, tokenDecimalsOverrideById, tokensAllowed]);
+  }, [tokenDecimalsData, tokensAllowed]);
 
   const loadMatchDetails = useCallback(async () => {
     if (!publicClient || !hyperDuelContractAddress) {

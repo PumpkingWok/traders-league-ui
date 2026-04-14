@@ -28,13 +28,6 @@ export const tokenIndexByChainId: Partial<Record<number, Record<string, number>>
   },
 };
 
-export const tokenDisplayDecimalsByChainId: Partial<Record<number, Record<string, number>>> = {
-  [hyperliquidTestnetChain.id]: {
-    HYPE: 6,
-    ETH: 4,
-  },
-};
-
 export const zeroAddress = '0x0000000000000000000000000000000000000000';
 
 export const swapHistoryLookbackBlocks = 50_000n;

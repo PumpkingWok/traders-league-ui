@@ -95,7 +95,7 @@ export const hyperDuelAbi = [
   },
   {
     type: 'function',
-    name: 'spotPx',
+    name: 'tokenPx',
     stateMutability: 'view',
     inputs: [{ name: 'index', type: 'uint32' }],
     outputs: [{ name: '', type: 'uint64' }],
