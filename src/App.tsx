@@ -15,7 +15,6 @@ import {
   assetDotColorByLabel,
   hyperDuelContractByChainId,
   preferredAssetOrder,
-  preferredHyperDuelChainId,
   tokenIndexByChainId,
 } from './config/contracts';
 import { compactNumber, formatDuration } from './utils/format';
@@ -35,8 +34,6 @@ export default function App() {
   const navigate = useNavigate();
   const { isConnected, address } = useAccount();
   const chainId = useChainId();
-  const { switchChainAsync } = useSwitchChain();
-  const [hasAttemptedAutoSwitch, setHasAttemptedAutoSwitch] = useState(false);
   const [isCreateMatchModalOpen, setIsCreateMatchModalOpen] = useState(false);
   const [selectedBuyIn, setSelectedBuyIn] = useState(25);
   const [selectedDurationHours, setSelectedDurationHours] = useState(4);
@@ -86,20 +83,6 @@ export default function App() {
     setIsCreateMatchModalOpen(true);
     navigate('/matches');
   };
-
-  useEffect(() => {
-    if (!isConnected) {
-      setHasAttemptedAutoSwitch(false);
-      return;
-    }
-
-    if (hasAttemptedAutoSwitch || chainId === preferredHyperDuelChainId) {
-      return;
-    }
-
-    setHasAttemptedAutoSwitch(true);
-    void switchChainAsync({ chainId: preferredHyperDuelChainId }).catch(() => undefined);
-  }, [chainId, hasAttemptedAutoSwitch, isConnected, switchChainAsync]);
 
   const { data: appBuyInTokenAddress } = useReadContract({
     address: hyperDuelContractAddress,
@@ -212,7 +195,7 @@ function Footer() {
             Traders League
           </div>
           <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#666]">
-            Build. Trade. Conclude.
+            Bring Human interactions onchain.
           </div>
         </div>
       </div>
@@ -252,6 +235,7 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
               <NavLink to="/my-matches" className={topNavLinkClassName}>
                 My Matches
               </NavLink>
+              <TournamentNavTeaser mode="top" />
             </div>
           </div>
 
@@ -276,6 +260,7 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
             <NavLink to="/my-matches" className={bottomNavLinkClassName}>
               My Matches
             </NavLink>
+            <TournamentNavTeaser mode="bottom" />
           </div>
           <div className="hidden items-center gap-5 md:flex">
             <div className="font-mono text-[13px] font-black uppercase tracking-[0.08em] text-[#4e4e4e]">Traders League</div>
@@ -284,9 +269,6 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
                 Balance: <span className="text-[#2f2f2f]">{buyInBalanceLabel}</span>
               </div>
             ) : null}
-          </div>
-          <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#636363]">
-            Retro-future trading arena
           </div>
         </div>
       </div>
@@ -300,6 +282,29 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
         </div>
       ) : null}
     </header>
+  );
+}
+
+function TournamentNavTeaser({ mode }: { mode: 'top' | 'bottom' }) {
+  const teaserClassName =
+    mode === 'top'
+      ? 'border-x border-[#9c9c9c] px-4 py-3 font-mono text-base font-black uppercase tracking-[0.08em] text-[#4a4a4a] hover:bg-[#dfdfdf]'
+      : 'px-2 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#555] hover:text-[#1f1f1f]';
+
+  const tooltipClassName =
+    mode === 'top'
+      ? 'top-full mt-2 min-w-[220px]'
+      : 'top-full mt-1 min-w-[200px]';
+
+  return (
+    <div className="group relative">
+      <div className={`${teaserClassName} cursor-help`}>Tournaments</div>
+      <div
+        className={`pointer-events-none invisible absolute left-1/2 z-30 -translate-x-1/2 border border-[#9c9c9c] bg-[#fff7d8] px-3 py-2 text-center font-mono text-[10px] font-black uppercase tracking-[0.08em] text-[#6a5600] opacity-0 shadow-[0_8px_18px_rgba(0,0,0,0.14)] transition duration-150 group-hover:visible group-hover:opacity-100 ${tooltipClassName}`}
+      >
+        Coming Soon: Tournaments Mode
+      </div>
+    </div>
   );
 }
 

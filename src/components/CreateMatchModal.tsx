@@ -322,6 +322,7 @@ export function CreateMatchModal({
   if (!isOpen) return null;
 
   const isReservedMatch = matchCreationMode === 'reserved';
+  const isEmptyMatch = matchCreationMode === 'empty';
   const hasAssetSelection = tokensAllowed.length > 0;
   const hasUnknownAssetSelection = tokensAllowed.length !== selectedAssets.length;
   const allowanceAmount = allowanceData ? BigInt(allowanceData as bigint) : 0n;
@@ -430,6 +431,44 @@ export function CreateMatchModal({
 
             <div>
               <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4f4f4f]">Creation Mode</div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="border border-[#b9b9b9] bg-[#f9f9f9] p-3">
+                  <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#6a6a6a]">Player A</div>
+                  <div
+                    className={`mt-2 border px-3 py-3 font-mono text-sm font-black uppercase tracking-[0.08em] ${
+                      isEmptyMatch
+                        ? 'border-[#b9b9b9] bg-[#f4f4f4] text-[#5f5f5f]'
+                        : 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98]'
+                    }`}
+                  >
+                    {isEmptyMatch ? 'Any player can join' : 'YOU'}
+                  </div>
+                </div>
+
+                <div className="border border-[#b9b9b9] bg-[#f9f9f9] p-3">
+                  <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#6a6a6a]">Player B</div>
+                  {isReservedMatch ? (
+                    <div className="mt-2 space-y-2">
+                      <input
+                        className="w-full border border-[#8f83ff] bg-[#f4f2ff] px-3 py-2 font-mono text-sm font-bold text-[#3f3a8a] outline-none placeholder:text-[#8f88bf]"
+                        placeholder="0x... reserved address"
+                        value={reservedOpponentAddress}
+                        onChange={(event) => onReservedOpponentAddressChange(event.target.value)}
+                      />
+                      {trimmedReservedOpponentAddress && !reservedAddressIsValid ? (
+                        <p className="font-mono text-[11px] font-bold leading-5 text-[#9a4f4f]">
+                          Enter a valid wallet address for Player B.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-2 border border-[#b9b9b9] bg-[#f4f4f4] px-3 py-3 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#5f5f5f]">
+                      Any player can join
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" className={modeButtonClass(matchCreationMode === 'empty')} onClick={() => onMatchCreationModeChange('empty')}>
                   Empty Match
@@ -448,28 +487,13 @@ export function CreateMatchModal({
               <p className="mt-3 font-mono text-xs font-bold leading-5 text-[#5f5f5f]">
                 Choose whether the match starts empty, starts with the creator as Player A, or is created with both Player A and Player B pre-set.
               </p>
-              {isReservedMatch ? (
-                <div className="mt-3 space-y-2">
-                  <input
-                    className="w-full border border-[#b9b9b9] bg-[#f9f9f9] px-3 py-2 font-mono text-sm font-bold text-[#404040] outline-none placeholder:text-[#999]"
-                    placeholder="0x... Player B address"
-                    value={reservedOpponentAddress}
-                    onChange={(event) => onReservedOpponentAddressChange(event.target.value)}
-                  />
-                  {trimmedReservedOpponentAddress && !reservedAddressIsValid ? (
-                    <p className="font-mono text-xs font-bold leading-5 text-[#9a4f4f]">
-                      Enter a valid wallet address to create a reserved match.
-                    </p>
-                  ) : null}
-                  <p className="font-mono text-xs font-bold leading-5 text-[#5f5f5f]">
-                    Your wallet is set as Player A, and this address is set as Player B at creation.
-                  </p>
-                </div>
-              ) : (
-                <p className="mt-3 font-mono text-xs font-bold leading-5 text-[#5f5f5f]">
-                  Player B remains open, so any valid wallet can join once the match is created.
-                </p>
-              )}
+              <p className="mt-2 font-mono text-xs font-bold leading-5 text-[#5f5f5f]">
+                {isEmptyMatch
+                  ? 'Both slots stay open and anyone can fill Player A and Player B later.'
+                  : isReservedMatch
+                    ? 'You lock in as Player A now and explicitly reserve Player B.'
+                    : 'You lock in as Player A now, while Player B remains open for anyone to join.'}
+              </p>
             </div>
 
             <div>

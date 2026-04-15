@@ -56,6 +56,7 @@ export default function MatchesPage({
   const [isLoadingMatches, setIsLoadingMatches] = useState(false);
   const [matchesError, setMatchesError] = useState<string | null>(null);
   const [selectedMatchToJoin, setSelectedMatchToJoin] = useState<Match | null>(null);
+
   const [matchFilter, setMatchFilter] = useState<'to-start' | 'current' | 'finish' | 'all'>('to-start');
   const [sortBy, setSortBy] = useState<'duration' | 'buyIn'>('duration');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -118,8 +119,8 @@ export default function MatchesPage({
     },
   });
 
-  const buyInTokenSymbol = (buyInTokenMetadata?.[0]?.result as string | undefined) ?? 'TOKEN';
-  const buyInTokenDecimals = Number((buyInTokenMetadata?.[1]?.result as number | undefined) ?? 18);
+  const buyInTokenSymbol = (buyInTokenMetadata?.[0]?.result as string | undefined) ?? 'USDC';
+  const buyInTokenDecimals = Number((buyInTokenMetadata?.[1]?.result as number | undefined) ?? 6);
   const platformFeeBps = (platformFeeData as bigint | undefined) ?? 0n;
   const platformFeePercentLabel = useMemo(() => {
     const value = Number(platformFeeBps) / 100;
@@ -172,76 +173,96 @@ export default function MatchesPage({
 
       try {
         const matchIds = Array.from({ length: latestMatchId }, (_, index) => BigInt(index + 1));
-        const recordsResult = await Promise.allSettled(
-          matchIds.map(async (id) => {
-            const match = (await publicClient.readContract({
-              address: hyperDuelContractAddress,
-              abi: hyperDuelAbi,
-              functionName: 'matches',
-              args: [id],
-            })) as readonly [Address, Address, Address, bigint, bigint, bigint, number];
-
-            const tokensAllowed = (await publicClient.readContract({
-              address: hyperDuelContractAddress,
-              abi: hyperDuelAbi,
-              functionName: 'getMatchTokensAllowed',
-              args: [id],
-            })) as readonly number[] | readonly bigint[];
-
-            let currentWinner = match[2];
-            if (
-              Number(match[6]) === 1 &&
-              match[0].toLowerCase() !== zeroAddress &&
-              match[1].toLowerCase() !== zeroAddress
-            ) {
-              const [playerATotalUsd, playerBTotalUsd] = (await Promise.all([
-                publicClient.readContract({
+        const records = (
+          await Promise.all(
+            matchIds.map(async (id) => {
+              try {
+                const match = (await publicClient.readContract({
                   address: hyperDuelContractAddress,
                   abi: hyperDuelAbi,
-                  functionName: 'getPlayerTotalUsd',
-                  args: [id, match[0]],
-                }),
-                publicClient.readContract({
-                  address: hyperDuelContractAddress,
-                  abi: hyperDuelAbi,
-                  functionName: 'getPlayerTotalUsd',
-                  args: [id, match[1]],
-                }),
-              ])) as [bigint, bigint];
+                  functionName: 'matches',
+                  args: [id],
+                })) as readonly [Address, Address, Address, bigint, bigint, bigint, number];
 
-              currentWinner =
-                playerATotalUsd === playerBTotalUsd
-                  ? (zeroAddress as Address)
-                  : playerATotalUsd > playerBTotalUsd
-                    ? match[0]
-                    : match[1];
-            }
+                let tokensAllowed: readonly number[] | readonly bigint[] = [];
+                try {
+                  tokensAllowed = (await publicClient.readContract({
+                    address: hyperDuelContractAddress,
+                    abi: hyperDuelAbi,
+                    functionName: 'getMatchTokensAllowed',
+                    args: [id],
+                  })) as readonly number[] | readonly bigint[];
+                } catch {
+                  tokensAllowed = [];
+                }
 
-            return {
-              id,
-              playerA: match[0],
-              playerB: match[1],
-              winner: match[2],
-              currentWinner,
-              buyIn: match[3],
-              duration: match[4],
-              endTs: match[5],
-              status: Number(match[6]),
-              tokensAllowed: tokensAllowed.map((tokenId) => Number(tokenId)),
-            };
-          }),
-        );
+                let currentWinner = match[2];
+                if (
+                  Number(match[6]) === 1 &&
+                  match[0].toLowerCase() !== zeroAddress &&
+                  match[1].toLowerCase() !== zeroAddress
+                ) {
+                  try {
+                    const [playerATotalUsd, playerBTotalUsd] = (await Promise.all([
+                      publicClient.readContract({
+                        address: hyperDuelContractAddress,
+                        abi: hyperDuelAbi,
+                        functionName: 'getPlayerTotalUsd',
+                        args: [id, match[0]],
+                      }),
+                      publicClient.readContract({
+                        address: hyperDuelContractAddress,
+                        abi: hyperDuelAbi,
+                        functionName: 'getPlayerTotalUsd',
+                        args: [id, match[1]],
+                      }),
+                    ])) as [bigint, bigint];
+
+                    currentWinner =
+                      playerATotalUsd === playerBTotalUsd
+                        ? (zeroAddress as Address)
+                        : playerATotalUsd > playerBTotalUsd
+                          ? match[0]
+                          : match[1];
+                  } catch {
+                    currentWinner = match[2];
+                  }
+                }
+
+                const normalizedTokensAllowed = tokensAllowed.map((tokenId) => Number(tokenId));
+                const isEmptyMatch =
+                  match[0].toLowerCase() === zeroAddress &&
+                  match[1].toLowerCase() === zeroAddress &&
+                  match[2].toLowerCase() === zeroAddress &&
+                  match[3] === 0n &&
+                  match[4] === 0n &&
+                  match[5] === 0n &&
+                  Number(match[6]) === 0 &&
+                  normalizedTokensAllowed.length === 0;
+
+                if (isEmptyMatch) return null;
+
+                return {
+                  id,
+                  playerA: match[0],
+                  playerB: match[1],
+                  winner: match[2],
+                  currentWinner,
+                  buyIn: match[3],
+                  duration: match[4],
+                  endTs: match[5],
+                  status: Number(match[6]),
+                  tokensAllowed: normalizedTokensAllowed,
+                };
+              } catch {
+                return null;
+              }
+            }),
+          )
+        ).filter((match): match is (typeof contractMatches)[number] => match !== null);
 
         if (!cancelled) {
-          const records = recordsResult
-            .filter((result): result is PromiseFulfilledResult<(typeof contractMatches)[number]> => result.status === 'fulfilled')
-            .map((result) => result.value);
           setContractMatches(records);
-
-          const failedReads = recordsResult.length - records.length;
-          if (failedReads > 0) {
-            setMatchesError(`Some matches could not be loaded (${failedReads} failed read${failedReads === 1 ? '' : 's'}).`);
-          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -266,7 +287,7 @@ export default function MatchesPage({
     if (contractMatches.length === 0) return;
 
     const hasToStartMatches = contractMatches.some((match) => match.status === 0);
-    const hasVisibleMatches = contractMatches.some((match) => match.status !== 3);
+    const hasVisibleMatches = contractMatches.length > 0;
 
     if (!hasToStartMatches && hasVisibleMatches) {
       setMatchFilter('all');
@@ -281,10 +302,9 @@ export default function MatchesPage({
     }, {});
 
     const filtered = contractMatches.filter((match) => {
-      if (match.status === 3) return false;
       if (matchFilter === 'to-start') return match.status === 0;
       if (matchFilter === 'current') return match.status === 1;
-      if (matchFilter === 'finish') return match.status === 2;
+      if (matchFilter === 'finish') return match.status === 2 || match.status === 3;
       return true;
     });
 
@@ -325,7 +345,7 @@ export default function MatchesPage({
       const winnerAddress = match.winner.toLowerCase();
       const currentWinnerAddress = match.currentWinner.toLowerCase();
       const winnerLabel =
-        match.status === 2
+        match.status >= 2
           ? winnerAddress === zeroAddress
             ? 'Tie'
             : formatAddress(match.winner)

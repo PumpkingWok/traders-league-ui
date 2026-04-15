@@ -1,21 +1,43 @@
-# traders-league-ui
+```text
+████████╗██████╗  █████╗ ██████╗ ███████╗██████╗ ███████╗
+╚══██╔══╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔════╝
+   ██║   ██████╔╝███████║██║  ██║█████╗  ██████╔╝███████╗
+   ██║   ██╔══██╗██╔══██║██║  ██║██╔══╝  ██╔══██╗╚════██║
+   ██║   ██║  ██║██║  ██║██████╔╝███████╗██║  ██║███████║
+   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚══════╝
 
-A React + Vite UI frontend for Traders League, using Tailwind CSS for styling.
+██╗     ███████╗ █████╗  ██████╗ ██╗   ██╗███████╗
+██║     ██╔════╝██╔══██╗██╔════╝ ██║   ██║██╔════╝
+██║     █████╗  ███████║██║  ███╗██║   ██║█████╗
+██║     ██╔══╝  ██╔══██║██║   ██║██║   ██║██╔══╝
+███████╗███████╗██║  ██║╚██████╔╝╚██████╔╝███████╗
+╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝
+```
 
-## Setup
+# Traders League interface
 
-1. Install dependencies:
-   ```bash
-   yarn install
-   ```
-2. Run the development server:
-   ```bash
-   yarn dev
-   ```
-3. Build for production:
-   ```bash
-   yarn build
-   ```
+An open source interface for the Traders League onchain virtual trading game protocol.
+
+Enabling users to:
+
+- Create 1v1 matches with configurable assets, buy-in, and duration
+- Join open or reserved matches and monitor match lifecycle status
+- Track active and completed matches directly from the app
+
+## How to use
+
+Install it and run:
+
+```bash
+yarn install
+yarn dev
+```
+
+Build for production:
+
+```bash
+yarn build
+```
 
 ## Wallet setup
 

@@ -1,11 +1,8 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useChainId, usePublicClient, useReadContract } from 'wagmi';
+import { hyperDuelAbi } from '../config/abis';
+import { hyperDuelContractByChainId } from '../config/contracts';
 import { supportedChains } from '../config/networks';
-
-const stats = [
-  { label: 'Open Matches', value: '12', icon: '01' },
-  { label: 'Live Matches', value: '6', icon: '02' },
-  { label: 'Completed Matches', value: '134', icon: '03' },
-  { label: 'Supported Chains', value: String(supportedChains.length), icon: '04' },
-];
 
 const howToPlaySteps = [
   {
@@ -37,6 +34,88 @@ export default function HomePage({
   onOpenCreateMatch: () => void;
   onBrowseMatches: () => void;
 }) {
+  const chainId = useChainId();
+  const publicClient = usePublicClient();
+  const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
+  const [statsCounts, setStatsCounts] = useState({
+    open: 0,
+    live: 0,
+    completed: 0,
+  });
+
+  const { data: latestMatchIdData } = useReadContract({
+    address: hyperDuelContractAddress,
+    abi: hyperDuelAbi,
+    functionName: 'matchId',
+    query: {
+      enabled: Boolean(hyperDuelContractAddress),
+    },
+  });
+
+  useEffect(() => {
+    if (!publicClient || !hyperDuelContractAddress || latestMatchIdData === undefined) {
+      setStatsCounts({ open: 0, live: 0, completed: 0 });
+      return;
+    }
+
+    const latestMatchId = Number(latestMatchIdData);
+    if (!Number.isFinite(latestMatchId) || latestMatchId < 1) {
+      setStatsCounts({ open: 0, live: 0, completed: 0 });
+      return;
+    }
+
+    let cancelled = false;
+    const fetchStats = async () => {
+      try {
+        const matchIds = Array.from({ length: latestMatchId }, (_, index) => BigInt(index + 1));
+        const matchesData = await Promise.allSettled(
+          matchIds.map((id) =>
+            publicClient.readContract({
+              address: hyperDuelContractAddress,
+              abi: hyperDuelAbi,
+              functionName: 'matches',
+              args: [id],
+            }),
+          ),
+        );
+
+        if (cancelled) return;
+
+        let open = 0;
+        let live = 0;
+        let completed = 0;
+
+        matchesData.forEach((result) => {
+          if (result.status !== 'fulfilled') return;
+          const match = result.value as readonly unknown[];
+          const status = Number(match[6] ?? -1);
+          if (status === 0) open += 1;
+          else if (status === 1) live += 1;
+          else if (status === 2) completed += 1;
+        });
+
+        setStatsCounts({ open, live, completed });
+      } catch {
+        if (!cancelled) setStatsCounts({ open: 0, live: 0, completed: 0 });
+      }
+    };
+
+    void fetchStats();
+    return () => {
+      cancelled = true;
+    };
+  }, [hyperDuelContractAddress, latestMatchIdData, publicClient]);
+
+  const stats = useMemo(
+    () => [
+      { label: 'Open Matches', value: String(statsCounts.open), icon: '01' },
+      { label: 'Live Matches', value: String(statsCounts.live), icon: '02' },
+      { label: 'Completed Matches', value: String(statsCounts.completed), icon: '03' },
+      { label: 'Supported Chains', value: String(supportedChains.length), icon: '04' },
+    ],
+    [statsCounts.completed, statsCounts.live, statsCounts.open],
+  );
+
   return (
     <>
       <section className="border border-[#a8a8a8] bg-[#f1f1f1]">
