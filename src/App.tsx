@@ -26,6 +26,7 @@ import {
 import HomePage from './pages/Home';
 import MatchesPage from './pages/Matches';
 import MyMatchesPage from './pages/MyMatches';
+import DashboardPage from './pages/Dashboard';
 import './ui.css';
 
 const navbarControlClassName = 'h-[52px]';
@@ -155,6 +156,7 @@ export default function App() {
                 />
               }
             />
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/my-matches" element={<MyMatchesPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -229,6 +231,9 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
               <NavLink to="/" className={topNavLinkClassName}>
                 Home
               </NavLink>
+              <NavLink to="/dashboard" className={topNavLinkClassName}>
+                Dashboard
+              </NavLink>
               <NavLink to="/matches" className={topNavLinkClassName}>
                 Matches
               </NavLink>
@@ -253,6 +258,9 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
           <div className="flex items-center gap-2 md:hidden">
             <NavLink to="/" className={bottomNavLinkClassName}>
               Home
+            </NavLink>
+            <NavLink to="/dashboard" className={bottomNavLinkClassName}>
+              Dashboard
             </NavLink>
             <NavLink to="/matches" className={bottomNavLinkClassName}>
               Matches
@@ -356,7 +364,7 @@ function NetworkSelector() {
         {activeChainName}
       </button>
       {isOpen ? (
-        <div className="absolute right-0 z-30 mt-2 w-64 border border-[#9c9c9c] bg-[#f5f5f5] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.15)]">
+        <div className="absolute right-0 top-full z-30 w-64 border border-[#9c9c9c] bg-[#f5f5f5] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.15)]">
           <div className="mb-2 border-b border-[#c0c0c0] pb-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#515151]">
             Supported Networks
           </div>

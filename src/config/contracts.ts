@@ -1,5 +1,6 @@
 import { type Address } from 'viem';
 import { hyperliquidEvmChain, hyperliquidTestnetChain } from './networks';
+import vUsdLogo from '../assets/vusd.svg';
 
 export const preferredAssetOrder = ['BTC', 'ETH', 'SOL', 'MATIC'] as const;
 
@@ -7,6 +8,23 @@ export const assetDotColorByLabel: Record<string, string> = {
   BTC: 'bg-orange-500',
   ETH: 'bg-slate-300',
   SOL: 'bg-emerald-500',
+};
+
+export const tokenAvatarUrlByLabel: Record<string, string> = {
+  BTC: 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  ETH: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+  SOL: 'https://assets.coingecko.com/coins/images/4128/small/solana.png',
+  HYPE: 'https://assets.coingecko.com/coins/images/50882/small/hyperliquid.jpg',
+  USD: vUsdLogo,
+  USDC: 'https://assets.coingecko.com/coins/images/6319/small/usdc.png',
+};
+
+export const tokenSymbolByLabel: Record<string, string> = {
+  USD: 'USD',
+  BTC: 'BTC',
+  ETH: 'ETH',
+  SOL: 'SOL',
+  HYPE: 'HYPE',
 };
 
 export const preferredHyperDuelChainId = hyperliquidEvmChain.id;

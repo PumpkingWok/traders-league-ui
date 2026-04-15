@@ -63,6 +63,20 @@ export const hyperDuelAbi = [
   },
   {
     type: 'function',
+    name: 'GAME_TRADER_FEE',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'gameTraderFee',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'matches',
     stateMutability: 'view',
     inputs: [{ name: '', type: 'uint256' }],
@@ -90,6 +104,17 @@ export const hyperDuelAbi = [
     inputs: [
       { name: '_matchId', type: 'uint256' },
       { name: '_player', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'matchBalances',
+    stateMutability: 'view',
+    inputs: [
+      { name: '', type: 'address' },
+      { name: '', type: 'uint256' },
+      { name: '', type: 'uint256' },
     ],
     outputs: [{ name: '', type: 'uint256' }],
   },

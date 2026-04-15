@@ -45,7 +45,7 @@ export const hyperliquidTestnetChain = defineChain({
     decimals: 18,
   },
   rpcUrls: {
-    default: { http: ['https://rpc.hyperliquid-testnet.xyz/evm'] },
+    default: { http: ['https://rpcs.chain.link/hyperevm/testnet'] },
   },
   blockExplorers: {
     default: {
@@ -68,7 +68,7 @@ const config = getDefaultConfig({
   chains: [...supportedChains],
   transports: {
     [hyperliquidEvmChain.id]: http(),
-    [hyperliquidTestnetChain.id]: http(),
+    [hyperliquidTestnetChain.id]: http('https://rpcs.chain.link/hyperevm/testnet'),
   },
   wallets: [
     {
