@@ -38,7 +38,7 @@ export const hyperliquidEvmChain = defineChain({
 
 export const hyperliquidTestnetChain = defineChain({
   id: 998,
-  name: 'Hyperliquid Testnet',
+  name: 'Hyperliquid Evm testnet',
   nativeCurrency: {
     name: 'HYPE',
     symbol: 'HYPE',

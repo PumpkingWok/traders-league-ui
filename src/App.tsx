@@ -29,7 +29,9 @@ import MyMatchesPage from './pages/MyMatches';
 import DashboardPage from './pages/Dashboard';
 import './ui.css';
 
-const navbarControlClassName = 'h-[52px]';
+const navbarControlClassName = 'h-[30px]';
+const themeStorageKey = 'traders-league-theme';
+type ThemeMode = 'light' | 'dark';
 
 export default function App() {
   const navigate = useNavigate();
@@ -42,6 +44,7 @@ export default function App() {
   const [matchCreationMode, setMatchCreationMode] = useState<MatchCreationMode>('creator-joins');
   const [reservedOpponentAddress, setReservedOpponentAddress] = useState('');
   const [matchesRefreshNonce, setMatchesRefreshNonce] = useState(0);
+  const [themeMode, setThemeMode] = useState<ThemeMode>('light');
   const selectedDuration = formatDuration(selectedDurationHours);
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
   const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};
@@ -58,6 +61,21 @@ export default function App() {
       index: tokenIndexMap[label],
     }));
   }, [tokenIndexMap]);
+
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem(themeStorageKey);
+    if (storedTheme === 'light' || storedTheme === 'dark') {
+      setThemeMode(storedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(themeStorageKey, themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', themeMode === 'dark');
+  }, [themeMode]);
 
   useEffect(() => {
     setSelectedAssets((currentAssets) => {
@@ -130,11 +148,11 @@ export default function App() {
       : null;
 
   return (
-    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#e3e3e3] text-white">
+    <div className="app-shell flex min-h-screen flex-col overflow-x-hidden bg-[#e3e3e3] text-white">
       <PixelBackground />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <Navbar buyInBalanceLabel={buyInBalanceLabel} />
+        <Navbar buyInBalanceLabel={buyInBalanceLabel} themeMode={themeMode} onThemeModeChange={setThemeMode} />
 
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-12 pt-6 md:px-6 lg:px-8">
           <Routes>
@@ -192,11 +210,11 @@ function Footer() {
     <footer className="mt-auto border-t border-[#9f9f9f] bg-[#ececec] text-[#2e2e2e]">
       <div className="h-[2px] w-full bg-[linear-gradient(90deg,#8f83ff_0%,#7ed8ff_50%,#8f83ff_100%)]" />
       <div className="border-b border-[#b4b4b4] bg-[#f2f2f2]">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
-          <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#5f5f5f]">
-            Traders League
+        <div className="flex w-full flex-col gap-2 px-2 py-3 md:flex-row md:items-center md:justify-between md:px-3">
+          <div className="flex items-center">
+            <TradersLeagueLogo />
           </div>
-          <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#666]">
+          <div className="flex items-center font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#666]">
             Bring Human interactions onchain.
           </div>
         </div>
@@ -205,9 +223,55 @@ function Footer() {
   );
 }
 
-function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
+function TradersLeagueLogo({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-label="Traders League logo"
+      width="152"
+      height="38"
+      viewBox="0 0 304 76"
+      className={className ?? 'h-8 w-[152px]'}
+    >
+      <defs>
+        <linearGradient id="tradersLeagueLogoFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#b8b1ff" />
+          <stop offset="55%" stopColor="#8f83ff" />
+          <stop offset="100%" stopColor="#7ed8ff" />
+        </linearGradient>
+      </defs>
+
+      <g>
+        <text
+          x="152"
+          y="51"
+          textAnchor="middle"
+          fontFamily="Impact, Haettenschweiler, 'Arial Black', sans-serif"
+          fontSize="38"
+          fontWeight="900"
+          letterSpacing="1.2"
+          fill="url(#tradersLeagueLogoFill)"
+          stroke="#d9e8ff"
+          strokeWidth="4.5"
+          paintOrder="stroke"
+        >
+          TRADERS LEAGUE
+        </text>
+      </g>
+    </svg>
+  );
+}
+
+function Navbar({
+  buyInBalanceLabel,
+  themeMode,
+  onThemeModeChange,
+}: {
+  buyInBalanceLabel: string | null;
+  themeMode: ThemeMode;
+  onThemeModeChange: (themeMode: ThemeMode) => void;
+}) {
   const topNavLinkClassName = ({ isActive }: { isActive: boolean }) =>
-    `border-x border-[#9c9c9c] px-4 py-3 font-mono text-base font-black uppercase tracking-[0.08em] ${
+    `px-4 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] ${
       isActive ? 'bg-[#5a53b6] text-[#f5f5ff]' : 'bg-transparent text-[#4a4a4a] hover:bg-[#dfdfdf]'
     }`;
 
@@ -218,14 +282,11 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
 
   return (
     <header className="sticky top-0 z-20 border-b border-[#9f9f9f] bg-[#ececec] text-[#2e2e2e]">
-      <div className="h-2 w-full bg-[#4c4c4c]" />
       <div className="border-b border-[#a3a3a3]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 md:px-6 lg:px-8">
+        <div className="flex w-full items-center justify-between gap-4 px-2 md:px-3">
           <div className="flex items-stretch">
             <div className="flex items-center border-r border-[#9c9c9c] pr-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[conic-gradient(from_180deg,#ff5f6d,#ffc371,#33d1ff,#7a5fff,#ff5f6d)] text-[9px] font-black text-white">
-                TL
-              </div>
+              <TradersLeagueLogo className="h-9 w-[170px]" />
             </div>
             <div className="hidden items-stretch md:flex">
               <NavLink to="/" className={topNavLinkClassName}>
@@ -244,17 +305,18 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 py-2">
+          <div className="flex items-center gap-2">
             <div className="hidden md:block">
               <NetworkSelector />
             </div>
             <WalletButton />
+            <ThemeTextToggle mode={themeMode} onModeChange={onThemeModeChange} />
           </div>
         </div>
       </div>
 
       <div className="border-b border-[#b4b4b4] bg-[#f2f2f2]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-1 md:px-6 lg:px-8">
+        <div className="flex w-full items-center justify-between gap-4 px-2 py-1 md:px-3">
           <div className="flex items-center gap-2 md:hidden">
             <NavLink to="/" className={bottomNavLinkClassName}>
               Home
@@ -271,7 +333,6 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
             <TournamentNavTeaser mode="bottom" />
           </div>
           <div className="hidden items-center gap-5 md:flex">
-            <div className="font-mono text-[13px] font-black uppercase tracking-[0.08em] text-[#4e4e4e]">Traders League</div>
             {buyInBalanceLabel ? (
               <div className="font-mono text-[12px] font-black uppercase tracking-[0.08em] text-[#686868]">
                 Balance: <span className="text-[#2f2f2f]">{buyInBalanceLabel}</span>
@@ -296,7 +357,7 @@ function Navbar({ buyInBalanceLabel }: { buyInBalanceLabel: string | null }) {
 function TournamentNavTeaser({ mode }: { mode: 'top' | 'bottom' }) {
   const teaserClassName =
     mode === 'top'
-      ? 'border-x border-[#9c9c9c] px-4 py-3 font-mono text-base font-black uppercase tracking-[0.08em] text-[#4a4a4a] hover:bg-[#dfdfdf]'
+      ? 'px-4 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4a4a4a] hover:bg-[#dfdfdf]'
       : 'px-2 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#555] hover:text-[#1f1f1f]';
 
   const tooltipClassName =
@@ -325,6 +386,8 @@ function NetworkSelector() {
 
   const activeChainName =
     supportedChains.find((chain) => chain.id === chainId)?.name ?? hyperliquidTestnetChain.name;
+  const mainnetChains = supportedChains.filter((chain) => !chain.testnet);
+  const testnetChains = supportedChains.filter((chain) => Boolean(chain.testnet));
 
   useEffect(() => {
     if (!isOpen) return;
@@ -358,7 +421,7 @@ function NetworkSelector() {
     <div className="relative" ref={dropdownRef}>
       <button
         type="button"
-        className={`border border-[#9c9c9c] bg-[#f4f4f4] px-4 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
+        className={`border border-[#b4b4b4] bg-[#f4f4f4] px-3 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
         onClick={() => setIsOpen((value) => !value)}
       >
         {activeChainName}
@@ -368,29 +431,61 @@ function NetworkSelector() {
           <div className="mb-2 border-b border-[#c0c0c0] pb-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#515151]">
             Supported Networks
           </div>
-          <div className="space-y-2">
-            {supportedChains.map((chain) => {
-              const isActive = chain.id === chainId;
-              return (
-                <button
-                  key={chain.id}
-                  type="button"
-                  className={`w-full border px-3 py-2 text-left font-mono text-xs font-black uppercase tracking-[0.08em] ${
-                    isActive
-                      ? 'border-[#8f83ff] bg-[#ece9ff] text-[#403a92]'
-                      : 'border-[#bdbdbd] bg-[#fff] text-[#474747] hover:bg-[#efefef]'
-                  }`}
-                  onClick={() => {
-                    setIsOpen(false);
-                    if (!isConnected || isActive) return;
-                    switchChain({ chainId: chain.id });
-                  }}
-                  disabled={isPending || !isConnected}
-                >
-                  {chain.name}
-                </button>
-              );
-            })}
+          <div className="space-y-3">
+            {mainnetChains.length > 0 ? (
+              <div className="space-y-2">
+                <div className="font-mono text-[10px] font-black uppercase tracking-[0.08em] text-[#656565]">Mainnet</div>
+                {mainnetChains.map((chain) => {
+                  const isActive = chain.id === chainId;
+                  return (
+                    <button
+                      key={chain.id}
+                      type="button"
+                      className={`w-full border px-3 py-2 text-left font-mono text-xs font-black uppercase tracking-[0.08em] ${
+                        isActive
+                          ? 'border-[#8f83ff] bg-[#ece9ff] text-[#403a92]'
+                          : 'border-[#bdbdbd] bg-[#fff] text-[#474747] hover:bg-[#efefef]'
+                      }`}
+                      onClick={() => {
+                        setIsOpen(false);
+                        if (!isConnected || isActive) return;
+                        switchChain({ chainId: chain.id });
+                      }}
+                      disabled={isPending || !isConnected}
+                    >
+                      {chain.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            {testnetChains.length > 0 ? (
+              <div className="space-y-2">
+                <div className="font-mono text-[10px] font-black uppercase tracking-[0.08em] text-[#656565]">Testnet</div>
+                {testnetChains.map((chain) => {
+                  const isActive = chain.id === chainId;
+                  return (
+                    <button
+                      key={chain.id}
+                      type="button"
+                      className={`w-full border px-3 py-2 text-left font-mono text-xs font-black uppercase tracking-[0.08em] ${
+                        isActive
+                          ? 'border-[#8f83ff] bg-[#ece9ff] text-[#403a92]'
+                          : 'border-[#bdbdbd] bg-[#fff] text-[#474747] hover:bg-[#efefef]'
+                      }`}
+                      onClick={() => {
+                        setIsOpen(false);
+                        if (!isConnected || isActive) return;
+                        switchChain({ chainId: chain.id });
+                      }}
+                      disabled={isPending || !isConnected}
+                    >
+                      {chain.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
           {!isConnected ? (
             <div className="mt-2 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#757575]">
@@ -415,7 +510,7 @@ function WalletButton() {
             <div className="flex flex-col items-end gap-1">
               <button
                 type="button"
-                className={`border border-[#9c9c9c] bg-[#f4f4f4] px-4 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
+                className={`border border-[#b4b4b4] bg-[#f4f4f4] px-3 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
                 onClick={openConnectModal}
               >
                 Connect Wallet
@@ -428,7 +523,7 @@ function WalletButton() {
           return (
             <button
               type="button"
-              className={`border border-[#d9a200] bg-[#fff0bf] px-4 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#5d4900] hover:bg-[#ffe89a] ${navbarControlClassName}`}
+              className={`border border-[#d9a200] bg-[#fff0bf] px-3 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#5d4900] hover:bg-[#ffe89a] ${navbarControlClassName}`}
               onClick={openChainModal}
             >
               Wrong Network
@@ -440,7 +535,7 @@ function WalletButton() {
           <div className="flex flex-col items-end gap-2">
             <button
               type="button"
-              className={`border border-[#9c9c9c] bg-[#f4f4f4] px-4 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
+              className={`border border-[#b4b4b4] bg-[#f4f4f4] px-3 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
               onClick={openAccountModal}
             >
               {account.displayName}
@@ -449,5 +544,24 @@ function WalletButton() {
         );
       }}
     </ConnectButton.Custom>
+  );
+}
+
+function ThemeTextToggle({ mode, onModeChange }: { mode: ThemeMode; onModeChange: (mode: ThemeMode) => void }) {
+  const buttonClass = (isActive: boolean) =>
+    `h-[30px] min-w-[50px] border-2 px-2 font-mono text-sm font-black uppercase tracking-[0.08em] ${
+      isActive
+        ? 'border-[#7f72ff] bg-[#ece9ff] text-[#433d98]'
+        : 'border-[#8f8f8f] bg-[#e7e7e7] text-[#3f3f3f] hover:bg-[#dddddd]'
+    }`;
+  return (
+    <div className={`hidden items-stretch ${navbarControlClassName} md:flex`}>
+      <button type="button" className={buttonClass(mode === 'light')} onClick={() => onModeChange('light')}>
+        Light
+      </button>
+      <button type="button" className={buttonClass(mode === 'dark')} onClick={() => onModeChange('dark')}>
+        Dark
+      </button>
+    </div>
   );
 }

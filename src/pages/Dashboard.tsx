@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { formatUnits, type Address } from 'viem';
 import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts } from 'wagmi';
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
-import { hyperDuelContractByChainId, zeroAddress } from '../config/contracts';
-import { compactNumber, formatAddress } from '../utils/format';
+import { hyperDuelContractByChainId, tokenIndexByChainId, zeroAddress } from '../config/contracts';
+import { compactNumber, formatAddress, formatDurationFromSeconds } from '../utils/format';
+import { JoinMatchModal } from '../components/JoinMatchModal';
+import { type Match } from '../types/match';
 
 const platformFeeBase = 10_000n;
 
@@ -13,7 +15,9 @@ type DashboardMatch = {
   playerB: Address;
   winner: Address;
   buyIn: bigint;
+  duration: bigint;
   status: number;
+  tokensAllowed: number[];
 };
 
 function formatPercent(value: number) {
@@ -26,10 +30,13 @@ export default function DashboardPage() {
   const chainId = useChainId();
   const publicClient = usePublicClient();
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
+  const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};
 
   const [matches, setMatches] = useState<DashboardMatch[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [matchesReloadNonce, setMatchesReloadNonce] = useState(0);
+  const [selectedReservedMatchToJoin, setSelectedReservedMatchToJoin] = useState<Match | null>(null);
 
   const { data: latestMatchIdData } = useReadContract({
     address: hyperDuelContractAddress,
@@ -120,13 +127,27 @@ export default function DashboardPage() {
               return null;
             }
 
+            let tokensAllowed: readonly number[] | readonly bigint[] = [];
+            try {
+              tokensAllowed = (await publicClient.readContract({
+                address: hyperDuelContractAddress,
+                abi: hyperDuelAbi,
+                functionName: 'getMatchTokensAllowed',
+                args: [id],
+              })) as readonly number[] | readonly bigint[];
+            } catch {
+              tokensAllowed = [];
+            }
+
             return {
               id,
               playerA,
               playerB,
               winner: match[2],
               buyIn: match[3],
+              duration: match[4],
               status: Number(match[6]),
+              tokensAllowed: tokensAllowed.map((tokenId) => Number(tokenId)),
             } satisfies DashboardMatch;
           }),
         );
@@ -152,7 +173,46 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [address, hyperDuelContractAddress, isConnected, latestMatchIdData, publicClient]);
+  }, [address, hyperDuelContractAddress, isConnected, latestMatchIdData, matchesReloadNonce, publicClient]);
+
+  const reservedInvites = useMemo(() => {
+    const connectedAddress = address?.toLowerCase();
+    if (!connectedAddress) return [];
+
+    const tokenLabelById = Object.entries(tokenIndexMap).reduce<Record<number, string>>((accumulator, [label, id]) => {
+      accumulator[id] = label;
+      return accumulator;
+    }, {});
+
+    return matches
+      .filter(
+        (match) =>
+          match.status === 0 &&
+          match.playerA.toLowerCase() !== zeroAddress &&
+          match.playerB.toLowerCase() === connectedAddress,
+      )
+      .sort((a, b) => Number(b.id - a.id))
+      .map((match) => {
+        const assetsLabel =
+          match.tokensAllowed.length > 0
+            ? match.tokensAllowed.map((tokenId) => tokenLabelById[tokenId] ?? `T${tokenId}`).join(' • ')
+            : 'No assets';
+
+        return {
+          id: `#${match.id.toString()}`,
+          matchId: match.id,
+          buyInRaw: match.buyIn,
+          assets: assetsLabel,
+          buyIn: `${compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} ${buyInTokenSymbol}`,
+          duration: formatDurationFromSeconds(match.duration),
+          players: `${formatAddress(match.playerA)} vs You`,
+          statusCode: match.status,
+          status: 'To Start',
+          winner: '-',
+          canJoin: true,
+        } satisfies Match;
+      });
+  }, [address, buyInTokenDecimals, buyInTokenSymbol, matches, tokenIndexMap]);
 
   const stats = useMemo(() => {
     const joined = matches.filter((match) => match.status !== 3);
@@ -273,6 +333,49 @@ export default function DashboardPage() {
         </div>
       </section>
 
+      {reservedInvites.length > 0 ? (
+        <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
+          <div className="border-b border-[#bcbcbc] bg-[#ebebeb] px-4 py-3 md:px-6">
+            <div className="font-mono text-lg font-black uppercase tracking-[0.08em] text-[#363636]">Reserved For You</div>
+          </div>
+          <div className="space-y-4 px-4 py-4 md:px-6 md:py-6">
+            <div className="overflow-hidden border border-[#b8b8b8] bg-[#f9f9f9]">
+              <div className="hidden grid-cols-[0.8fr_1.3fr_1.8fr_1fr_1fr_0.9fr] gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid">
+                <div>Match</div>
+                <div>Players</div>
+                <div>Assets</div>
+                <div>Buy-in</div>
+                <div>Duration</div>
+                <div>Action</div>
+              </div>
+              <div className="divide-y divide-[#d3d3d3]">
+                {reservedInvites.map((match) => (
+                  <div
+                    key={`dashboard-reserved-${match.id}`}
+                    className="grid gap-4 bg-[#f9f9f9] px-4 py-4 font-mono text-sm font-bold text-[#3b3b3b] md:grid-cols-[0.8fr_1.3fr_1.8fr_1fr_1fr_0.9fr] md:items-center"
+                  >
+                    <div>{match.id}</div>
+                    <div>{match.players}</div>
+                    <div>{match.assets}</div>
+                    <div>{match.buyIn}</div>
+                    <div>{match.duration}</div>
+                    <div>
+                      <button
+                        type="button"
+                        className="border border-[#8f83ff] bg-[#ece9ff] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#433d98] hover:bg-[#e3deff]"
+                        onClick={() => setSelectedReservedMatchToJoin(match)}
+                      >
+                        Join
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
         <div className="border-b border-[#bcbcbc] bg-[#ebebeb] px-4 py-3 md:px-6">
           <div className="font-mono text-lg font-black uppercase tracking-[0.08em] text-[#363636]">Recent Matches</div>
@@ -320,6 +423,17 @@ export default function DashboardPage() {
           )}
         </div>
       </section>
+
+      <JoinMatchModal
+        isOpen={Boolean(selectedReservedMatchToJoin)}
+        match={selectedReservedMatchToJoin}
+        buyInTokenAddress={buyInTokenAddressData as Address | undefined}
+        buyInTokenSymbol={buyInTokenSymbol}
+        buyInTokenDecimals={buyInTokenDecimals}
+        hyperDuelContractAddress={hyperDuelContractAddress}
+        onJoined={() => setMatchesReloadNonce((value) => value + 1)}
+        onClose={() => setSelectedReservedMatchToJoin(null)}
+      />
     </section>
   );
 }

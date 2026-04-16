@@ -66,8 +66,8 @@ export default function MatchesPage({
   const [isPrizeInfoOpen, setIsPrizeInfoOpen] = useState(false);
   const hideCountdownAndWinner = matchFilter === 'to-start';
   const matchTableGridTemplate = hideCountdownAndWinner
-    ? 'repeat(9, minmax(0, 1fr))'
-    : 'repeat(11, minmax(0, 1fr))';
+    ? 'repeat(8, minmax(0, 1fr))'
+    : 'repeat(10, minmax(0, 1fr))';
   const { data: concludeMatchHash, error: concludeMatchError, isPending: isConcludePending, writeContract: writeConcludeMatch } = useWriteContract();
   const { isLoading: isConcludeConfirming, isSuccess: isConcludeConfirmed } = useWaitForTransactionReceipt({
     hash: concludeMatchHash,
@@ -286,8 +286,12 @@ export default function MatchesPage({
     if (matchFilter !== 'to-start') return;
     if (contractMatches.length === 0) return;
 
-    const hasToStartMatches = contractMatches.some((match) => match.status === 0);
-    const hasVisibleMatches = contractMatches.length > 0;
+    const hasToStartMatches = contractMatches.some(
+      (match) => match.status === 0 && match.playerB.toLowerCase() === zeroAddress,
+    );
+    const hasVisibleMatches = contractMatches.some(
+      (match) => !(match.status === 0 && match.playerB.toLowerCase() !== zeroAddress),
+    );
 
     if (!hasToStartMatches && hasVisibleMatches) {
       setMatchFilter('all');
@@ -302,6 +306,8 @@ export default function MatchesPage({
     }, {});
 
     const filtered = contractMatches.filter((match) => {
+      const isReservedMatch = match.status === 0 && match.playerB.toLowerCase() !== zeroAddress;
+      if (isReservedMatch) return false;
       if (matchFilter === 'to-start') return match.status === 0;
       if (matchFilter === 'current') return match.status === 1;
       if (matchFilter === 'finish') return match.status === 2 || match.status === 3;
@@ -330,12 +336,8 @@ export default function MatchesPage({
     return sorted.map((match) => {
       const isPlayerAConnected = Boolean(connectedAddress) && match.playerA.toLowerCase() === connectedAddress;
       const isPlayerBConnected = Boolean(connectedAddress) && match.playerB.toLowerCase() === connectedAddress;
-      const isReservedMatch = match.status === 0 && match.playerB.toLowerCase() !== zeroAddress;
-      const isReservedForYou = isReservedMatch && isPlayerBConnected;
-      const isJoined = Boolean(isPlayerAConnected || (isPlayerBConnected && !isReservedForYou));
-      const canJoin =
-        (match.status === 0 && match.playerB.toLowerCase() === zeroAddress && !isJoined) || isReservedForYou;
-      const matchType: 'Public' | 'Reserved' = isReservedMatch ? 'Reserved' : 'Public';
+      const isJoined = Boolean(isPlayerAConnected || isPlayerBConnected);
+      const canJoin = match.status === 0 && match.playerB.toLowerCase() === zeroAddress && !isJoined;
       const playersCount = Number(match.playerA.toLowerCase() !== zeroAddress) + Number(match.playerB.toLowerCase() !== zeroAddress);
       const statusLabel = match.status === 0 ? 'To Start' : match.status === 1 ? 'Ongoing' : 'Finished';
       const assetsLabel =
@@ -375,7 +377,6 @@ export default function MatchesPage({
         assets: assetsLabel,
         buyIn: `${compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} ${buyInTokenSymbol}`,
         prize: `${compactNumber(formatUnits(netPrize, buyInTokenDecimals))} ${buyInTokenSymbol}`,
-        matchType,
         duration: formatDurationFromSeconds(match.duration),
         countdown: countdownLabel,
         players: `${playersCount}/2`,
@@ -384,7 +385,6 @@ export default function MatchesPage({
         winner: winnerLabel,
         isJoined,
         canJoin,
-        isReservedForYou,
         canConclude,
         isConcluding,
       };
@@ -519,7 +519,6 @@ export default function MatchesPage({
                     </div>
                   ) : null}
                 </div>
-                <div>Type</div>
                 <div>Duration</div>
                 {!hideCountdownAndWinner ? <div>Countdown</div> : null}
                 <div>Players</div>

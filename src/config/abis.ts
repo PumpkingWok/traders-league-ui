@@ -23,6 +23,13 @@ export const hyperDuelAbi = [
   },
   {
     type: 'function',
+    name: 'unjoinMatch',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: '_matchId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'concludeMatch',
     stateMutability: 'nonpayable',
     inputs: [{ name: '_matchId', type: 'uint256' }],

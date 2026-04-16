@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnits, type Address } from 'viem';
-import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts } from 'wagmi';
+import {
+  useAccount,
+  useChainId,
+  usePublicClient,
+  useReadContract,
+  useReadContracts,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from 'wagmi';
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenAvatarUrlByLabel, tokenIndexByChainId, zeroAddress } from '../config/contracts';
 import { compactNumber, formatAddress, formatDurationFromSeconds } from '../utils/format';
@@ -59,8 +67,32 @@ export default function MyMatchesPage() {
   >([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [matchesReloadNonce, setMatchesReloadNonce] = useState(0);
   const [selectedOngoingMatchId, setSelectedOngoingMatchId] = useState<bigint | null>(null);
+  const [concludingMatchId, setConcludingMatchId] = useState<bigint | null>(null);
+  const [unjoiningMatchId, setUnjoiningMatchId] = useState<bigint | null>(null);
+  const [activeSection, setActiveSection] = useState<'current' | 'to-start' | 'history'>('current');
+  const [isMatchSelectorOpen, setIsMatchSelectorOpen] = useState(false);
   const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
+  const matchSelectorRef = useRef<HTMLDivElement | null>(null);
+  const {
+    data: concludeMatchHash,
+    error: concludeMatchError,
+    isPending: isConcludePending,
+    writeContract: writeConcludeMatch,
+  } = useWriteContract();
+  const { isLoading: isConcludeConfirming, isSuccess: isConcludeConfirmed } = useWaitForTransactionReceipt({
+    hash: concludeMatchHash,
+  });
+  const {
+    data: unjoinMatchHash,
+    error: unjoinMatchError,
+    isPending: isUnjoinPending,
+    writeContract: writeUnjoinMatch,
+  } = useWriteContract();
+  const { isLoading: isUnjoinConfirming, isSuccess: isUnjoinConfirmed } = useWaitForTransactionReceipt({
+    hash: unjoinMatchHash,
+  });
 
   const { data: latestMatchIdData } = useReadContract({
     address: hyperDuelContractAddress,
@@ -235,7 +267,7 @@ export default function MyMatchesPage() {
     return () => {
       cancelled = true;
     };
-  }, [address, hyperDuelContractAddress, isConnected, latestMatchIdData, publicClient]);
+  }, [address, hyperDuelContractAddress, isConnected, latestMatchIdData, matchesReloadNonce, publicClient]);
 
   const ongoingMatches = useMemo(
     () => matches.filter((match) => match.status === 1).sort((a, b) => Number(b.id - a.id)),
@@ -244,6 +276,14 @@ export default function MyMatchesPage() {
   const toStartMatches = useMemo(
     () => matches.filter((match) => match.status === 0).sort((a, b) => Number(b.id - a.id)),
     [matches],
+  );
+  const toStartOpenMatches = useMemo(
+    () => toStartMatches.filter((match) => match.playerB.toLowerCase() === zeroAddress),
+    [toStartMatches],
+  );
+  const toStartReservedMatches = useMemo(
+    () => toStartMatches.filter((match) => match.playerB.toLowerCase() !== zeroAddress),
+    [toStartMatches],
   );
   const historyMatches = useMemo(
     () => matches.filter((match) => match.status === 2 || match.status === 3).sort((a, b) => Number(b.id - a.id)),
@@ -261,6 +301,48 @@ export default function MyMatchesPage() {
       setSelectedOngoingMatchId(ongoingMatches[0].id);
     }
   }, [ongoingMatches, selectedOngoingMatchId]);
+
+  useEffect(() => {
+    if (!isConcludeConfirmed) return;
+    setConcludingMatchId(null);
+    setMatchesReloadNonce((previous) => previous + 1);
+  }, [isConcludeConfirmed]);
+
+  useEffect(() => {
+    if (!concludeMatchError) return;
+    setConcludingMatchId(null);
+  }, [concludeMatchError]);
+  useEffect(() => {
+    if (!isUnjoinConfirmed) return;
+    setUnjoiningMatchId(null);
+    setMatchesReloadNonce((previous) => previous + 1);
+  }, [isUnjoinConfirmed]);
+  useEffect(() => {
+    if (!unjoinMatchError) return;
+    setUnjoiningMatchId(null);
+  }, [unjoinMatchError]);
+
+  useEffect(() => {
+    if (!isMatchSelectorOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!matchSelectorRef.current?.contains(event.target as Node)) {
+        setIsMatchSelectorOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsMatchSelectorOpen(false);
+    };
+
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMatchSelectorOpen]);
 
   const selectedOngoingMatch =
     selectedOngoingMatchId === null ? null : ongoingMatches.find((match) => match.id === selectedOngoingMatchId) ?? null;
@@ -340,6 +422,18 @@ export default function MyMatchesPage() {
   };
   const getCurrentMatchCountdown = (match: (typeof matches)[number]) =>
     formatMatchCountdown(match.endTs - BigInt(nowTs));
+  const canConcludeSelectedOngoingMatch = Boolean(
+    selectedOngoingMatch && selectedOngoingMatch.status === 1 && selectedOngoingMatch.endTs <= BigInt(nowTs),
+  );
+  const isConcludingSelectedMatch = Boolean(
+    selectedOngoingMatch &&
+      concludingMatchId === selectedOngoingMatch.id &&
+      (isConcludePending || isConcludeConfirming),
+  );
+  const getMatchSelectorLabel = (match: (typeof matches)[number]) => {
+    const usdLabels = getCurrentMatchUsdLabels(match);
+    return `#${match.id.toString()} | YOU ${usdLabels.youUsd} USD | Other player ${usdLabels.otherUsd} USD | Countdown ${getCurrentMatchCountdown(match)}`;
+  };
   const formatTokenUsdValue = (value: bigint | null) => {
     if (value === null) return '-';
     const numeric = Number(formatUnits(value, 18));
@@ -478,15 +572,71 @@ export default function MyMatchesPage() {
   };
 
   const getStatusLabel = (status: number) => (status === 0 ? 'To Start' : status === 1 ? 'Ongoing' : status === 3 ? 'Cancelled' : 'Finished');
+  const getToStartPlayersLabel = (match: (typeof matches)[number]) => {
+    const connectedAddress = address?.toLowerCase();
+    const isReserved = match.playerB.toLowerCase() !== zeroAddress;
+    if (!isReserved) {
+      return `${match.playerA.toLowerCase() === connectedAddress ? 'YOU' : formatAddress(match.playerA)} vs Waiting opponent`;
+    }
+
+    if (match.playerA.toLowerCase() === connectedAddress) {
+      return `YOU vs ${formatAddress(match.playerB)} (Waiting to accept)`;
+    }
+    if (match.playerB.toLowerCase() === connectedAddress) {
+      return `YOU vs ${formatAddress(match.playerA)} (Reserved invite)`;
+    }
+    return `${formatAddress(match.playerA)} vs ${formatAddress(match.playerB)} (Waiting to accept)`;
+  };
   const getWinnerLabel = (match: (typeof matches)[number]) => {
     if (match.status === 2) {
-      return match.winner.toLowerCase() === zeroAddress ? 'Tie' : formatAddress(match.winner);
+      if (match.winner.toLowerCase() === zeroAddress) return 'Tie';
+      const connectedAddress = address?.toLowerCase();
+      if (!connectedAddress) return formatAddress(match.winner);
+      return match.winner.toLowerCase() === connectedAddress ? 'Won' : 'Lost';
     }
     if (match.status === 1) {
       return match.currentWinner.toLowerCase() === zeroAddress ? 'Undecided' : formatAddress(match.currentWinner);
     }
     return '-';
   };
+  const getHistoryPlayersLabel = (match: (typeof matches)[number]) => {
+    const connectedAddress = address?.toLowerCase();
+    if (match.playerA.toLowerCase() === connectedAddress) {
+      return `YOU vs ${match.playerB.toLowerCase() === zeroAddress ? 'Waiting opponent' : formatAddress(match.playerB)}`;
+    }
+    if (match.playerB.toLowerCase() === connectedAddress) {
+      return `YOU vs ${match.playerA.toLowerCase() === zeroAddress ? 'Waiting opponent' : formatAddress(match.playerA)}`;
+    }
+    return `${formatAddress(match.playerA)} vs ${formatAddress(match.playerB)}`;
+  };
+  const handleConcludeMatch = (matchId: bigint) => {
+    if (!hyperDuelContractAddress || isConcludePending || isConcludeConfirming) return;
+    setConcludingMatchId(matchId);
+    writeConcludeMatch({
+      address: hyperDuelContractAddress,
+      abi: hyperDuelAbi,
+      functionName: 'concludeMatch',
+      args: [matchId],
+    });
+  };
+  const handleUnjoinMatch = (matchId: bigint) => {
+    if (!hyperDuelContractAddress || isUnjoinPending || isUnjoinConfirming) return;
+    setUnjoiningMatchId(matchId);
+    writeUnjoinMatch({
+      address: hyperDuelContractAddress,
+      abi: hyperDuelAbi,
+      functionName: 'unjoinMatch',
+      args: [matchId],
+    });
+  };
+  const isUnjoiningMatch = (matchId: bigint) =>
+    unjoiningMatchId === matchId && (isUnjoinPending || isUnjoinConfirming);
+  const sectionTabClass = (active: boolean) =>
+    `border px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
+      active
+        ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98]'
+        : 'border-[#b9b9b9] bg-[#f8f8f8] text-[#555] hover:bg-[#efefef]'
+    }`;
 
   if (!isConnected || !address) {
     return (
@@ -526,6 +676,23 @@ export default function MyMatchesPage() {
 
       <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
         <div className="border-b border-[#bcbcbc] bg-[#ebebeb] px-4 py-3 md:px-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={sectionTabClass(activeSection === 'current')} onClick={() => setActiveSection('current')}>
+              Current
+            </button>
+            <button type="button" className={sectionTabClass(activeSection === 'to-start')} onClick={() => setActiveSection('to-start')}>
+              To Start
+            </button>
+            <button type="button" className={sectionTabClass(activeSection === 'history')} onClick={() => setActiveSection('history')}>
+              History
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {activeSection === 'current' ? (
+        <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
+        <div className="border-b border-[#bcbcbc] bg-[#ebebeb] px-4 py-3 md:px-6">
           <div className="font-mono text-lg font-black uppercase tracking-[0.08em] text-[#363636]">
             Current Matches
           </div>
@@ -549,21 +716,50 @@ export default function MyMatchesPage() {
                 <div className="mb-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a]">
                   Switch Current Match
                 </div>
-                <select
-                  className="w-full border border-[#b9b9b9] bg-[#f8f8f8] px-3 py-2 font-mono text-xs font-black tracking-[0.04em] text-[#4a4a4a] outline-none focus:border-[#8f83ff]"
-                  value={selectedOngoingMatch?.id.toString() ?? ''}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    if (!nextValue) return;
-                    setSelectedOngoingMatchId(BigInt(nextValue));
-                  }}
-                >
-                  {ongoingMatches.map((match) => (
-                    <option key={`current-match-option-${match.id.toString()}`} value={match.id.toString()}>
-                      {`#${match.id.toString()} | YOU ${getCurrentMatchUsdLabels(match).youUsd} USD | Other player ${getCurrentMatchUsdLabels(match).otherUsd} USD | Countdown ${getCurrentMatchCountdown(match)}`}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative" ref={matchSelectorRef}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between border border-[#b9b9b9] bg-[#f8f8f8] px-3 py-2 text-left font-mono text-xs font-black tracking-[0.06em] text-[#4a4a4a] outline-none focus:border-[#8f83ff]"
+                    onClick={() => setIsMatchSelectorOpen((previous) => !previous)}
+                    aria-haspopup="listbox"
+                    aria-expanded={isMatchSelectorOpen}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {getMatchSelectorLabel(selectedOngoingMatch)}
+                    </span>
+                    <span className="ml-2 shrink-0 font-mono text-xs font-black leading-none text-[#6a6a6a]">
+                      {isMatchSelectorOpen ? '▴' : '▾'}
+                    </span>
+                  </button>
+                  {isMatchSelectorOpen ? (
+                    <div className="absolute left-0 right-0 z-20 mt-1 border border-[#b9b9b9] bg-[#f8f8f8] shadow-[0_8px_20px_rgba(0,0,0,0.12)]">
+                      <div role="listbox" className="max-h-56 overflow-y-auto py-1">
+                        {ongoingMatches.map((match) => {
+                          const isSelected = selectedOngoingMatch?.id === match.id;
+                          return (
+                            <button
+                              key={`current-match-option-${match.id.toString()}`}
+                              type="button"
+                              role="option"
+                              aria-selected={isSelected}
+                              className={`flex w-full items-center px-3 py-2 text-left font-mono text-xs font-black tracking-[0.06em] ${
+                                isSelected
+                                  ? 'bg-[#ece8ff] text-[#40357e]'
+                                  : 'text-[#4a4a4a] hover:bg-[#efefef]'
+                              }`}
+                              onClick={() => {
+                                setSelectedOngoingMatchId(match.id);
+                                setIsMatchSelectorOpen(false);
+                              }}
+                            >
+                              <span className="min-w-0 flex-1 truncate">{getMatchSelectorLabel(match)}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="border border-[#b9b9b9] bg-[#f9f9f9] px-4 py-4">
@@ -608,6 +804,18 @@ export default function MyMatchesPage() {
                     <span className="text-[#666]">Countdown:</span> {getCurrentMatchCountdown(selectedOngoingMatch)}
                   </div>
                 </div>
+                {canConcludeSelectedOngoingMatch ? (
+                  <div className="mt-4 border-t border-[#d1d1d1] pt-4">
+                    <button
+                      type="button"
+                      className="border border-[#8f83ff] bg-[#ece9ff] px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#433d98] hover:bg-[#e3deff] disabled:cursor-not-allowed disabled:border-[#bdb8e6] disabled:bg-[#efedf8] disabled:text-[#7a77a2]"
+                      onClick={() => handleConcludeMatch(selectedOngoingMatch.id)}
+                      disabled={isConcludingSelectedMatch}
+                    >
+                      {isConcludingSelectedMatch ? 'Concluding...' : 'Conclude Match'}
+                    </button>
+                  </div>
+                ) : null}
 
                 <div className="mt-4 space-y-4 border-t border-[#d1d1d1] pt-4">
                   <div className="border border-[#b9b9b9] bg-[#f3f3f3] px-3 py-3">
@@ -758,8 +966,10 @@ export default function MyMatchesPage() {
           )}
         </div>
       </section>
+      ) : null}
 
-      <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
+      {activeSection === 'to-start' ? (
+        <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
         <div className="border-b border-[#bcbcbc] bg-[#ebebeb] px-4 py-3 md:px-6">
           <div className="font-mono text-lg font-black uppercase tracking-[0.08em] text-[#363636]">
             Matches To Start
@@ -768,41 +978,105 @@ export default function MyMatchesPage() {
         <div className="space-y-4 px-4 py-4 md:px-6 md:py-6">
           {isLoading ? (
             <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#5a5a5a]">Loading your matches...</div>
-          ) : toStartMatches.length === 0 ? (
-            <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#6b6b6b]">No matches waiting for opponent.</div>
+          ) : toStartOpenMatches.length === 0 && toStartReservedMatches.length === 0 ? (
+            <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#6b6b6b]">No matches to start.</div>
           ) : (
-            <div className="overflow-hidden border border-[#b8b8b8] bg-[#f9f9f9]">
-              <div className="hidden grid-cols-[0.9fr_1.3fr_1.8fr_1fr_1fr] gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid">
-                <div>Match</div>
-                <div>Players</div>
-                <div>Assets</div>
-                <div>Buy-In</div>
-                <div>Duration</div>
-              </div>
-              <div className="divide-y divide-[#d3d3d3]">
-                {toStartMatches.map((match) => (
-                  <div
-                    key={`to-start-match-${match.id.toString()}`}
-                    className="grid gap-4 bg-[#f9f9f9] px-4 py-4 font-mono text-sm font-bold text-[#3b3b3b] md:grid-cols-[0.9fr_1.3fr_1.8fr_1fr_1fr] md:items-center"
-                  >
-                    <div>#{match.id.toString()}</div>
-                    <div>{`${formatAddress(match.playerA)} vs ${match.playerB.toLowerCase() === zeroAddress ? 'Waiting opponent' : formatAddress(match.playerB)}`}</div>
-                    <div>
-                      {match.tokensAllowed.length > 0
-                        ? match.tokensAllowed.map((tokenId) => tokenLabelById[tokenId] ?? `T${tokenId}`).join(' • ')
-                        : 'No assets'}
-                    </div>
-                    <div>{compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} {buyInTokenSymbol}</div>
-                    <div>{formatDurationFromSeconds(match.duration)}</div>
+            <div className="space-y-4">
+              {toStartOpenMatches.length > 0 ? (
+                <div className="overflow-hidden border border-[#b8b8b8] bg-[#f9f9f9]">
+                  <div className="border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a]">
+                    Open Matches
                   </div>
-                ))}
-              </div>
+                  <div className="hidden gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 text-center font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid md:grid-cols-6">
+                    <div>Match</div>
+                    <div>Players</div>
+                    <div>Assets</div>
+                    <div>Buy-In</div>
+                    <div>Duration</div>
+                    <div>Action</div>
+                  </div>
+                  <div className="divide-y divide-[#d3d3d3]">
+                    {toStartOpenMatches.map((match) => (
+                      <div
+                        key={`to-start-open-match-${match.id.toString()}`}
+                        className="grid gap-4 bg-[#f9f9f9] px-4 py-4 text-center font-mono text-sm font-bold text-[#3b3b3b] md:grid-cols-6 md:items-center"
+                      >
+                        <div>#{match.id.toString()}</div>
+                        <div>{getToStartPlayersLabel(match)}</div>
+                        <div>
+                          {match.tokensAllowed.length > 0
+                            ? match.tokensAllowed.map((tokenId) => tokenLabelById[tokenId] ?? `T${tokenId}`).join(' • ')
+                            : 'No assets'}
+                        </div>
+                        <div>{compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} {buyInTokenSymbol}</div>
+                        <div>{formatDurationFromSeconds(match.duration)}</div>
+                        <div className="flex justify-center">
+                          <button
+                            type="button"
+                            className="border border-[#b9b9b9] bg-[#f7f7f7] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec] disabled:cursor-not-allowed disabled:border-[#c8c8c8] disabled:bg-[#f1f1f1] disabled:text-[#9a9a9a]"
+                            onClick={() => handleUnjoinMatch(match.id)}
+                            disabled={isUnjoiningMatch(match.id)}
+                          >
+                            {isUnjoiningMatch(match.id) ? 'Unjoining...' : 'Unjoin'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {toStartReservedMatches.length > 0 ? (
+                <div className="overflow-hidden border border-[#b8b8b8] bg-[#f9f9f9]">
+                  <div className="border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a]">
+                    Reserved Matches
+                  </div>
+                  <div className="hidden gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 text-center font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid md:grid-cols-6">
+                    <div>Match</div>
+                    <div>Players</div>
+                    <div>Assets</div>
+                    <div>Buy-In</div>
+                    <div>Duration</div>
+                    <div>Action</div>
+                  </div>
+                  <div className="divide-y divide-[#d3d3d3]">
+                    {toStartReservedMatches.map((match) => (
+                      <div
+                        key={`to-start-reserved-match-${match.id.toString()}`}
+                        className="grid gap-4 bg-[#f9f9f9] px-4 py-4 text-center font-mono text-sm font-bold text-[#3b3b3b] md:grid-cols-6 md:items-center"
+                      >
+                        <div>#{match.id.toString()}</div>
+                        <div>{getToStartPlayersLabel(match)}</div>
+                        <div>
+                          {match.tokensAllowed.length > 0
+                            ? match.tokensAllowed.map((tokenId) => tokenLabelById[tokenId] ?? `T${tokenId}`).join(' • ')
+                            : 'No assets'}
+                        </div>
+                        <div>{compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} {buyInTokenSymbol}</div>
+                        <div>{formatDurationFromSeconds(match.duration)}</div>
+                        <div className="flex justify-center">
+                          <button
+                            type="button"
+                            className="border border-[#b9b9b9] bg-[#f7f7f7] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec] disabled:cursor-not-allowed disabled:border-[#c8c8c8] disabled:bg-[#f1f1f1] disabled:text-[#9a9a9a]"
+                            onClick={() => handleUnjoinMatch(match.id)}
+                            disabled={isUnjoiningMatch(match.id)}
+                          >
+                            {isUnjoiningMatch(match.id) ? 'Unjoining...' : 'Unjoin'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
       </section>
+      ) : null}
 
-      <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
+      {activeSection === 'history' ? (
+        <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
         <div className="border-b border-[#bcbcbc] bg-[#ebebeb] px-4 py-3 md:px-6">
           <div className="font-mono text-lg font-black uppercase tracking-[0.08em] text-[#363636]">
             Match History
@@ -815,24 +1089,24 @@ export default function MyMatchesPage() {
             <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#6b6b6b]">No concluded matches yet.</div>
           ) : (
             <div className="overflow-hidden border border-[#b8b8b8] bg-[#f9f9f9]">
-              <div className="hidden grid-cols-[0.9fr_0.8fr_1.3fr_1.6fr_1fr_1fr_1fr] gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid">
+              <div className="hidden gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 text-center font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid md:grid-cols-7">
                 <div>Match</div>
                 <div>Status</div>
                 <div>Players</div>
                 <div>Assets</div>
                 <div>Buy-In</div>
                 <div>Duration</div>
-                <div>Winner</div>
+                <div>Result</div>
               </div>
               <div className="divide-y divide-[#d3d3d3]">
                 {historyMatches.map((match) => (
                   <div
                     key={`history-match-${match.id.toString()}`}
-                    className="grid gap-4 bg-[#f9f9f9] px-4 py-4 font-mono text-sm font-bold text-[#3b3b3b] md:grid-cols-[0.9fr_0.8fr_1.3fr_1.6fr_1fr_1fr_1fr] md:items-center"
+                    className="grid gap-4 bg-[#f9f9f9] px-4 py-4 text-center font-mono text-sm font-bold text-[#3b3b3b] md:grid-cols-7 md:items-center"
                   >
                     <div>#{match.id.toString()}</div>
                     <div>{getStatusLabel(match.status)}</div>
-                    <div>{`${formatAddress(match.playerA)} vs ${formatAddress(match.playerB)}`}</div>
+                    <div>{getHistoryPlayersLabel(match)}</div>
                     <div>
                       {match.tokensAllowed.length > 0
                         ? match.tokensAllowed.map((tokenId) => tokenLabelById[tokenId] ?? `T${tokenId}`).join(' • ')
@@ -848,6 +1122,7 @@ export default function MyMatchesPage() {
           )}
         </div>
       </section>
+      ) : null}
     </section>
   );
 }

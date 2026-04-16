@@ -260,6 +260,90 @@
   color: #94a3b8;
 }
 
+html.dark body {
+  background: #111418;
+  color: #e5e7eb;
+}
+
+html.dark .app-shell {
+  background: #111418 !important;
+}
+
+html.dark [class*='bg-[#f9f9f9]'],
+html.dark [class*='bg-[#f8f8f8]'],
+html.dark [class*='bg-[#f7f7f7]'],
+html.dark [class*='bg-[#f5f5f5]'],
+html.dark [class*='bg-[#f4f4f4]'],
+html.dark [class*='bg-[#f3f3f3]'],
+html.dark [class*='bg-[#f2f2f2]'],
+html.dark [class*='bg-[#f1f1f1]'],
+html.dark [class*='bg-[#efefef]'],
+html.dark [class*='bg-[#eeeeee]'],
+html.dark [class*='bg-[#ececec]'],
+html.dark [class*='bg-[#ebebeb]'],
+html.dark [class*='bg-[#e7e7e7]'],
+html.dark [class*='bg-[#e3e3e3]'] {
+  background-color: #1b1f24 !important;
+}
+
+html.dark [class*='border-[#d4d4d4]'],
+html.dark [class*='border-[#d3d3d3]'],
+html.dark [class*='border-[#d1d1d1]'],
+html.dark [class*='border-[#cfcfcf]'],
+html.dark [class*='border-[#c8c8c8]'],
+html.dark [class*='border-[#c2c2c2]'],
+html.dark [class*='border-[#c0c0c0]'],
+html.dark [class*='border-[#bdbdbd]'],
+html.dark [class*='border-[#bcbcbc]'],
+html.dark [class*='border-[#b9b9b9]'],
+html.dark [class*='border-[#b8b8b8]'],
+html.dark [class*='border-[#b4b4b4]'],
+html.dark [class*='border-[#ababab]'],
+html.dark [class*='border-[#a8a8a8]'],
+html.dark [class*='border-[#a3a3a3]'],
+html.dark [class*='border-[#9f9f9f]'],
+html.dark [class*='border-[#9d9d9d]'],
+html.dark [class*='border-[#9c9c9c]'] {
+  border-color: #3b424b !important;
+}
+
+html.dark [class*='text-[#2b2b2b]'],
+html.dark [class*='text-[#2e2e2e]'],
+html.dark [class*='text-[#2f2f2f]'],
+html.dark [class*='text-[#3b3b3b]'],
+html.dark [class*='text-[#3d3d3d]'],
+html.dark [class*='text-[#424242]'],
+html.dark [class*='text-[#454545]'],
+html.dark [class*='text-[#474747]'],
+html.dark [class*='text-[#4a4a4a]'],
+html.dark [class*='text-[#4d4d4d]'],
+html.dark [class*='text-[#4e4e4e]'],
+html.dark [class*='text-[#4f4f4f]'],
+html.dark [class*='text-[#515151]'],
+html.dark [class*='text-[#525252]'],
+html.dark [class*='text-[#555]'],
+html.dark [class*='text-[#5a5a5a]'],
+html.dark [class*='text-[#5b5b5b]'],
+html.dark [class*='text-[#5d5d5d]'],
+html.dark [class*='text-[#5e5e5e]'],
+html.dark [class*='text-[#5f5f5f]'],
+html.dark [class*='text-[#666]'],
+html.dark [class*='text-[#686868]'],
+html.dark [class*='text-[#6a6a6a]'],
+html.dark [class*='text-[#6b6b6b]'],
+html.dark [class*='text-[#6c6c6c]'],
+html.dark [class*='text-[#757575]'] {
+  color: #d6d9de !important;
+}
+
+html.dark [class*='hover:bg-[#efefef]']:hover,
+html.dark [class*='hover:bg-[#eeeeee]']:hover,
+html.dark [class*='hover:bg-[#ececec]']:hover,
+html.dark [class*='hover:bg-[#e6e6e6]']:hover,
+html.dark [class*='hover:bg-[#dfdfdf]']:hover {
+  background-color: #262d36 !important;
+}
+
 @media (min-width: 768px) {
   .matches-table-grid {
     grid-template-columns: 120px minmax(0, 1.5fr) 180px 140px 130px 100px 120px 160px 110px;
