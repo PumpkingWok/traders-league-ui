@@ -227,19 +227,25 @@ export default function DashboardPage() {
     const winRate = decidedMatches > 0 ? (wins / decidedMatches) * 100 : 0;
     const lossRate = decidedMatches > 0 ? (losses / decidedMatches) * 100 : 0;
 
-    const netPrizeForMatch = (buyIn: bigint) => {
+    const netPrizeForWonMatch = (buyIn: bigint) => {
       const grossPrize = buyIn * 2n;
       const feeAmount = (grossPrize * platformFeeBps) / platformFeeBase;
       return grossPrize - feeAmount;
     };
 
-    const prizeWon = concluded.reduce((accumulator, match) => {
-      if (match.winner.toLowerCase() !== address?.toLowerCase()) return accumulator;
-      return accumulator + netPrizeForMatch(match.buyIn);
+    const realizedPayout = concluded.reduce((accumulator, match) => {
+      const winner = match.winner.toLowerCase();
+      const connected = address?.toLowerCase();
+      if (winner === zeroAddress) {
+        // Draw: each player gets their own buy-in back, and no platform fee is charged.
+        return accumulator + match.buyIn;
+      }
+      if (winner !== connected) return accumulator;
+      return accumulator + netPrizeForWonMatch(match.buyIn);
     }, 0n);
 
     const totalBuyIns = concluded.reduce((accumulator, match) => accumulator + match.buyIn, 0n);
-    const pnl = prizeWon - totalBuyIns;
+    const pnl = realizedPayout - totalBuyIns;
 
     return {
       joined: joined.length,
@@ -250,7 +256,7 @@ export default function DashboardPage() {
       draws,
       winRate,
       lossRate,
-      prizeWon,
+      prizeWon: realizedPayout,
       pnl,
       recent: [...joined].sort((a, b) => Number(b.id - a.id)).slice(0, 8),
     };

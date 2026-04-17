@@ -41,4 +41,7 @@ yarn build
 
 ## Wallet setup
 
-Create a `.env` file from `.env.example` and set `VITE_WALLETCONNECT_PROJECT_ID` with your WalletConnect Cloud project id.
+Create a `.env` file from `.env.example` and set:
+
+- `VITE_WALLETCONNECT_PROJECT_ID` with your WalletConnect Cloud project id
+- `VITE_GOLDSKY_SUBGRAPH_URL` with your deployed Goldsky GraphQL endpoint (used for swap history)

@@ -15,6 +15,7 @@ import {
   assetDotColorByLabel,
   hyperDuelContractByChainId,
   preferredAssetOrder,
+  tokenAvatarUrlByLabel,
   tokenIndexByChainId,
 } from './config/contracts';
 import { compactNumber, formatDuration } from './utils/format';
@@ -206,16 +207,56 @@ export default function App() {
 }
 
 function Footer() {
+  const footerItemClass =
+    'inline-flex items-center gap-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f48a8] transition-colors hover:text-[#3b3592] hover:underline';
+
   return (
     <footer className="mt-auto border-t border-[#9f9f9f] bg-[#ececec] text-[#2e2e2e]">
       <div className="h-[2px] w-full bg-[linear-gradient(90deg,#8f83ff_0%,#7ed8ff_50%,#8f83ff_100%)]" />
       <div className="border-b border-[#b4b4b4] bg-[#f2f2f2]">
-        <div className="flex w-full flex-col gap-2 px-2 py-3 md:flex-row md:items-center md:justify-between md:px-3">
-          <div className="flex items-center">
-            <TradersLeagueLogo />
-          </div>
-          <div className="flex items-center font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#666]">
-            Bring Human interactions onchain.
+        <div className="w-full px-2 py-3 md:px-3">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="flex items-center md:pt-1">
+              <TradersLeagueLogo />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 md:flex-1 md:px-6 lg:px-10">
+              <div className="space-y-2">
+                <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#4a4a4a]">
+                  Community
+                </div>
+                <div className="flex flex-col gap-2">
+                  <a href="" className={footerItemClass}>
+                    <TelegramIcon className="h-3.5 w-3.5" />
+                    Telegram
+                  </a>
+                  <a href="" className={footerItemClass}>
+                    <XIcon className="h-3.5 w-3.5" />
+                    X
+                  </a>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#4a4a4a]">
+                  Documentation
+                </div>
+                <div className="flex flex-col gap-2">
+                  <a href="" className={footerItemClass}>
+                    <GitHubIcon className="h-3.5 w-3.5" />
+                    UI
+                  </a>
+                  <a href="" className={footerItemClass}>
+                    <GitHubIcon className="h-3.5 w-3.5" />
+                    Contracts
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#666] md:justify-end md:pt-1">
+              Bring Human interactions onchain.
+            </div>
           </div>
         </div>
       </div>
@@ -257,6 +298,30 @@ function TradersLeagueLogo({ className }: { className?: string }) {
           TRADERS LEAGUE
         </text>
       </g>
+    </svg>
+  );
+}
+
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
+      <path d="M18.244 2h3.308l-7.227 8.26L22.8 22h-6.636l-5.196-6.79L4.99 22H1.68l7.73-8.835L1.2 2h6.804l4.697 6.231L18.244 2zm-1.16 18h1.833L7.01 3.895H5.044L17.084 20z" />
+    </svg>
+  );
+}
+
+function TelegramIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
+      <path d="M21.93 4.37a1.5 1.5 0 0 0-1.59-.2L3.22 11.2a1.5 1.5 0 0 0 .14 2.83l4.15 1.38 1.52 4.9a1.5 1.5 0 0 0 2.67.52l2.45-3.1 4.21 3.1a1.5 1.5 0 0 0 2.36-.9l2.43-14.2a1.5 1.5 0 0 0-.82-1.36zM9.6 14.77l-.74 2.38-.88-2.83 8.55-5.85-6.93 6.3z" />
+    </svg>
+  );
+}
+
+function GitHubIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
+      <path d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.2c-3.34.73-4.04-1.42-4.04-1.42-.54-1.37-1.32-1.74-1.32-1.74-1.08-.74.08-.73.08-.73 1.2.08 1.83 1.22 1.83 1.22 1.06 1.82 2.78 1.29 3.46.99.11-.77.42-1.29.76-1.59-2.67-.3-5.48-1.33-5.48-5.9 0-1.3.47-2.36 1.23-3.2-.12-.3-.53-1.52.12-3.17 0 0 1-.32 3.3 1.22a11.4 11.4 0 0 1 6 0c2.3-1.54 3.3-1.22 3.3-1.22.65 1.65.24 2.87.12 3.17.76.84 1.23 1.9 1.23 3.2 0 4.58-2.82 5.6-5.51 5.9.43.37.82 1.1.82 2.22v3.29c0 .32.22.7.83.58A12 12 0 0 0 12 .5z" />
     </svg>
   );
 }
@@ -384,8 +449,9 @@ function NetworkSelector() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
-  const activeChainName =
-    supportedChains.find((chain) => chain.id === chainId)?.name ?? hyperliquidTestnetChain.name;
+  const activeChain = supportedChains.find((chain) => chain.id === chainId) ?? hyperliquidTestnetChain;
+  const activeChainName = activeChain.name;
+  const activeChainIconUrl = tokenAvatarUrlByLabel.HYPE;
   const mainnetChains = supportedChains.filter((chain) => !chain.testnet);
   const testnetChains = supportedChains.filter((chain) => Boolean(chain.testnet));
 
@@ -421,10 +487,19 @@ function NetworkSelector() {
     <div className="relative" ref={dropdownRef}>
       <button
         type="button"
-        className={`border border-[#b4b4b4] bg-[#f4f4f4] px-3 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
+        className={`inline-flex items-center gap-2 border border-[#b4b4b4] bg-[#f4f4f4] px-2 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#3d3d3d] hover:bg-[#e6e6e6] ${navbarControlClassName}`}
         onClick={() => setIsOpen((value) => !value)}
+        aria-label={`Select network (current: ${activeChainName})`}
       >
-        {activeChainName}
+        <img
+          src={activeChainIconUrl}
+          alt={`${activeChainName} icon`}
+          className="h-5 w-5 rounded-full border border-[#a7a7a7] object-cover"
+          loading="lazy"
+        />
+        <span aria-hidden="true" className="text-xs leading-none text-[#666]">
+          {isOpen ? '▲' : '▼'}
+        </span>
       </button>
       {isOpen ? (
         <div className="absolute right-0 top-full z-30 w-64 border border-[#9c9c9c] bg-[#f5f5f5] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.15)]">
@@ -441,7 +516,7 @@ function NetworkSelector() {
                     <button
                       key={chain.id}
                       type="button"
-                      className={`w-full border px-3 py-2 text-left font-mono text-xs font-black uppercase tracking-[0.08em] ${
+                      className={`flex w-full items-center gap-2 border px-3 py-2 text-left font-mono text-xs font-black uppercase tracking-[0.08em] ${
                         isActive
                           ? 'border-[#8f83ff] bg-[#ece9ff] text-[#403a92]'
                           : 'border-[#bdbdbd] bg-[#fff] text-[#474747] hover:bg-[#efefef]'
@@ -453,7 +528,13 @@ function NetworkSelector() {
                       }}
                       disabled={isPending || !isConnected}
                     >
-                      {chain.name}
+                      <img
+                        src={tokenAvatarUrlByLabel.HYPE}
+                        alt={`${chain.name} icon`}
+                        className="h-4 w-4 rounded-full border border-[#b8b8b8] object-cover"
+                        loading="lazy"
+                      />
+                      <span>{chain.name}</span>
                     </button>
                   );
                 })}
@@ -468,7 +549,7 @@ function NetworkSelector() {
                     <button
                       key={chain.id}
                       type="button"
-                      className={`w-full border px-3 py-2 text-left font-mono text-xs font-black uppercase tracking-[0.08em] ${
+                      className={`flex w-full items-center gap-2 border px-3 py-2 text-left font-mono text-xs font-black uppercase tracking-[0.08em] ${
                         isActive
                           ? 'border-[#8f83ff] bg-[#ece9ff] text-[#403a92]'
                           : 'border-[#bdbdbd] bg-[#fff] text-[#474747] hover:bg-[#efefef]'
@@ -480,7 +561,13 @@ function NetworkSelector() {
                       }}
                       disabled={isPending || !isConnected}
                     >
-                      {chain.name}
+                      <img
+                        src={tokenAvatarUrlByLabel.HYPE}
+                        alt={`${chain.name} icon`}
+                        className="h-4 w-4 rounded-full border border-[#b8b8b8] object-cover"
+                        loading="lazy"
+                      />
+                      <span>{chain.name}</span>
                     </button>
                   );
                 })}

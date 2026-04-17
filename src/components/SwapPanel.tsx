@@ -13,6 +13,8 @@ const virtualAssetDecimals = 18;
 const platformFeeBase = 10_000n;
 const tokenPriceDecimals = 4;
 const usdVirtualPriceScale = 10_000n;
+const subgraphSwapHistoryUrl = (import.meta.env.VITE_GOLDSKY_SUBGRAPH_URL ?? '').trim();
+const maxSubgraphSwapRows = 300;
 
 type SwapDraftLeg = {
   id: number;
@@ -20,6 +22,148 @@ type SwapDraftLeg = {
   tokenOut: number;
   amountIn: string;
   usePreviousOutput: boolean;
+};
+
+type SwapHistoryRow = {
+  transactionHash: `0x${string}` | null;
+  blockNumber: bigint;
+  logIndex: number;
+  tokenIn: number;
+  tokenOut: number;
+  amountIn: bigint;
+  amountOut: bigint;
+  player: Address;
+};
+
+const readBigInt = (value: unknown): bigint | null => {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === 'string' && value.length > 0) {
+    try {
+      return value.startsWith('0x') ? BigInt(value) : BigInt(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const readNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'bigint') {
+    const casted = Number(value);
+    return Number.isFinite(casted) ? casted : null;
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    if (value.startsWith('0x')) {
+      const parsedHex = Number.parseInt(value, 16);
+      return Number.isFinite(parsedHex) ? parsedHex : null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const readAddress = (value: unknown): Address => {
+  if (typeof value === 'string' && value.startsWith('0x') && value.length === 42) {
+    return value as Address;
+  }
+  return zeroAddress;
+};
+
+const normalizeSubgraphSwapRow = (raw: Record<string, unknown>): SwapHistoryRow | null => {
+  const parsedMatchId = readBigInt(raw.matchId ?? raw.match_id);
+  if (parsedMatchId === null) return null;
+
+  const tokenIn = readNumber(raw.tokenIn ?? raw.token_in);
+  const tokenOut = readNumber(raw.tokenOut ?? raw.token_out);
+  const amountIn = readBigInt(raw.amountIn ?? raw.amount_in);
+  const amountOut = readBigInt(raw.amountOut ?? raw.amount_out);
+  if (tokenIn === null || tokenOut === null || amountIn === null || amountOut === null) return null;
+
+  return {
+    transactionHash: (raw.transactionHash ?? raw.transactionHash_ ?? raw.transaction_hash ?? raw.txHash ?? null) as `0x${string}` | null,
+    blockNumber: readBigInt(raw.blockNumber ?? raw.block_number) ?? 0n,
+    logIndex: readNumber(raw.logIndex ?? raw.log_index) ?? 0,
+    tokenIn,
+    tokenOut,
+    amountIn,
+    amountOut,
+    player: readAddress(raw.player),
+  };
+};
+
+const fetchSwapHistoryFromSubgraph = async ({
+  endpoint,
+  matchId,
+  limit,
+}: {
+  endpoint: string;
+  matchId: bigint;
+  limit: number;
+}): Promise<SwapHistoryRow[] | null> => {
+  const queryAttempts: Array<{ rootFieldName: string; query: string }> = [
+    {
+      rootFieldName: 'swaps',
+      query: `query SwapRows { swaps(first: ${limit}, orderBy: block_number, orderDirection: desc) { matchId tokenIn tokenOut amountIn amountOut player block_number transactionHash_ } }`,
+    },
+    {
+      rootFieldName: 'swaps',
+      query: `query SwapRows { swaps(first: ${limit}, orderBy: blockNumber, orderDirection: desc) { matchId tokenIn tokenOut amountIn amountOut player blockNumber transactionHash logIndex } }`,
+    },
+    {
+      rootFieldName: 'swapEvents',
+      query: `query SwapRows { swapEvents(first: ${limit}, orderBy: blockNumber, orderDirection: desc) { matchId tokenIn tokenOut amountIn amountOut player blockNumber transactionHash logIndex } }`,
+    },
+    {
+      rootFieldName: 'swaps',
+      query: `query SwapRows { swaps(first: ${limit}) { matchId tokenIn tokenOut amountIn amountOut player blockNumber transactionHash logIndex } }`,
+    },
+    {
+      rootFieldName: 'swapEvents',
+      query: `query SwapRows { swapEvents(first: ${limit}) { matchId tokenIn tokenOut amountIn amountOut player blockNumber transactionHash logIndex } }`,
+    },
+    {
+      rootFieldName: 'swaps',
+      query: `query SwapRows { swaps(first: ${limit}) { match_id token_in token_out amount_in amount_out player block_number transaction_hash log_index } }`,
+    },
+    {
+      rootFieldName: 'swap_events',
+      query: `query SwapRows { swap_events(first: ${limit}) { match_id token_in token_out amount_in amount_out player block_number transaction_hash log_index } }`,
+    },
+  ];
+
+  for (const attempt of queryAttempts) {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: attempt.query }),
+    });
+    if (!response.ok) continue;
+    const json = (await response.json()) as { data?: Record<string, unknown>; errors?: Array<{ message?: string }> };
+    if (json.errors?.length) continue;
+    const rows = json.data?.[attempt.rootFieldName];
+    if (!Array.isArray(rows)) continue;
+
+    const normalizedRows = rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const raw = row as Record<string, unknown>;
+        const rawMatchId = readBigInt(raw.matchId ?? raw.match_id);
+        if (rawMatchId !== null && rawMatchId !== matchId) return null;
+        return normalizeSubgraphSwapRow(raw);
+      })
+      .filter((row): row is SwapHistoryRow => row !== null);
+
+    normalizedRows.sort((a, b) => {
+      if (a.blockNumber === b.blockNumber) return b.logIndex - a.logIndex;
+      return a.blockNumber > b.blockNumber ? -1 : 1;
+    });
+    return normalizedRows;
+  }
+
+  return null;
 };
 
 export function SwapPanel({
@@ -33,6 +177,9 @@ export function SwapPanel({
   tokenLabelById,
   hyperDuelContractAddress,
   showMatchDetails = true,
+  disableSwap = false,
+  duration,
+  endTs,
 }: {
   matchId: bigint;
   playerA: Address;
@@ -44,6 +191,9 @@ export function SwapPanel({
   tokenLabelById: Record<number, string>;
   hyperDuelContractAddress?: Address;
   showMatchDetails?: boolean;
+  disableSwap?: boolean;
+  duration: bigint;
+  endTs: bigint;
 }) {
   const { isConnected, address } = useAccount();
   const chainId = useChainId();
@@ -65,6 +215,9 @@ export function SwapPanel({
   const [openPickerId, setOpenPickerId] = useState<string | null>(null);
   const [failedAvatarByKey, setFailedAvatarByKey] = useState<Record<string, boolean>>({});
   const [expandedStepById, setExpandedStepById] = useState<Record<number, boolean>>({});
+  const [swapHistoryRows, setSwapHistoryRows] = useState<SwapHistoryRow[]>([]);
+  const [isLoadingSwapHistory, setIsLoadingSwapHistory] = useState(false);
+  const [swapHistoryError, setSwapHistoryError] = useState<string | null>(null);
 
   const {
     data: swapHash,
@@ -186,6 +339,37 @@ export function SwapPanel({
     }
   }, [publicClient, hyperDuelContractAddress, matchId, playerA, playerB]);
 
+  const loadSwapHistory = useCallback(async () => {
+    if (!hyperDuelContractAddress) {
+      setSwapHistoryRows([]);
+      setSwapHistoryError(null);
+      return;
+    }
+
+    setIsLoadingSwapHistory(true);
+    setSwapHistoryError(null);
+
+    try {
+      if (!subgraphSwapHistoryUrl) {
+        throw new Error('Missing VITE_GOLDSKY_SUBGRAPH_URL. Swap history is available only via Goldsky.');
+      }
+      const fromSubgraph = await fetchSwapHistoryFromSubgraph({
+        endpoint: subgraphSwapHistoryUrl,
+        matchId,
+        limit: maxSubgraphSwapRows,
+      });
+      if (!fromSubgraph) {
+        throw new Error('Could not fetch swap history from Goldsky subgraph.');
+      }
+      setSwapHistoryRows(fromSubgraph);
+    } catch (error) {
+      setSwapHistoryRows([]);
+      setSwapHistoryError(error instanceof Error ? error.message : 'Could not load swap history.');
+    } finally {
+      setIsLoadingSwapHistory(false);
+    }
+  }, [hyperDuelContractAddress, matchId]);
+
   useEffect(() => {
     setSwapLegs((currentLegs) =>
       currentLegs.map((leg) => ({
@@ -204,6 +388,13 @@ export function SwapPanel({
     if (!isSwapConfirmed) return;
     void loadMatchDetails();
   }, [isSwapConfirmed, loadMatchDetails]);
+  useEffect(() => {
+    void loadSwapHistory();
+  }, [loadSwapHistory]);
+  useEffect(() => {
+    if (!isSwapConfirmed) return;
+    void loadSwapHistory();
+  }, [isSwapConfirmed, loadSwapHistory]);
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node | null;
@@ -295,10 +486,12 @@ export function SwapPanel({
 
   const allLegsValid = simulationLegs.length > 0 && simulationLegs.every((leg) => leg.isValid && leg.parsedAmountIn && leg.amountOut);
   const hasAnyFilledSwapInput = simulationLegs.some((leg) => Boolean(leg.isValid && leg.parsedAmountIn && leg.amountOut));
+  const isSwapLocked = disableSwap;
   const canSwap =
     isConnected &&
     Boolean(hyperDuelContractAddress) &&
     allLegsValid &&
+    !isSwapLocked &&
     !isSwapPending &&
     !isConfirmingSwap;
 
@@ -402,6 +595,44 @@ export function SwapPanel({
       </span>
     );
   };
+  const renderTokenIcon = (tokenId: number) => {
+    const symbol = getTokenSymbol(tokenId);
+    const tokenLabel = tokenId === 0 ? 'USD' : tokenLabelById[tokenId] ?? symbol;
+    const avatarUrl = tokenAvatarUrlByLabel[symbol] ?? tokenAvatarUrlByLabel[tokenLabel];
+    const avatarKey = `${symbol}:${avatarUrl ?? 'none'}`;
+    const showImage = Boolean(avatarUrl) && !failedAvatarByKey[avatarKey];
+    const fallbackBackgroundBySymbol: Record<string, string> = {
+      USD: '#dbeafe',
+      BTC: '#ffedd5',
+      ETH: '#e5e7eb',
+      SOL: '#dcfce7',
+      HYPE: '#ede9fe',
+    };
+    const fallbackBackground = fallbackBackgroundBySymbol[symbol] ?? '#e5e7eb';
+
+    return (
+      <span
+        className="relative inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border border-[#8f8f8f]"
+        style={{ backgroundColor: showImage ? '#ffffff' : fallbackBackground }}
+      >
+        {showImage ? (
+          <img
+            src={avatarUrl as string}
+            alt={`${symbol} logo`}
+            className="absolute inset-0 h-full w-full object-cover"
+            loading="lazy"
+            onError={() => {
+              setFailedAvatarByKey((current) => ({ ...current, [avatarKey]: true }));
+            }}
+          />
+        ) : (
+          <span className="font-mono text-[9px] font-black uppercase tracking-[0.02em] text-[#2f2f2f]">
+            {symbol.slice(0, 3)}
+          </span>
+        )}
+      </span>
+    );
+  };
   const formatVirtualUsd = (value: bigint | null) => {
     if (value === null) return '-';
     const numeric = Number(formatUnits(value, virtualAssetDecimals));
@@ -451,6 +682,12 @@ export function SwapPanel({
     if (amount === null || amount === undefined) return '-';
     return compactNumber(formatUnits(amount, virtualAssetDecimals));
   };
+  const formatSwapRateLabel = (amountIn: bigint, amountOut: bigint, tokenIn: number, tokenOut: number) => {
+    if (amountIn <= 0n) return '-';
+    const rateScaled = (amountOut * 10n ** 18n) / amountIn;
+    const rate = compactNumber(formatUnits(rateScaled, 18));
+    return `1 ${getTokenSymbol(tokenIn)} = ${rate} ${getTokenSymbol(tokenOut)}`;
+  };
   const formatApproxUsdFromTokenAmount = (amount: bigint | null | undefined, tokenId: number) => {
     if (amount === null || amount === undefined) return '~ -';
     const price = tokenPriceById[tokenId];
@@ -495,6 +732,13 @@ export function SwapPanel({
         </div>
       ) : null}
 
+      {isSwapLocked ? (
+        <div className="border border-[#d4a2a2] bg-[#f8e6e6] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#8a4747]">
+          Match countdown ended. Conclude match.
+        </div>
+      ) : null}
+
+      {!isSwapLocked ? (
       <div className="border border-[#b9b9b9] bg-[#f3f3f3] px-3 py-3">
         <div className="space-y-3">
           {simulationLegs.map((leg, index) => {
@@ -699,7 +943,7 @@ export function SwapPanel({
             className="border border-[#b9b9b9] bg-[#f7f7f7] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec]"
             onClick={addSwapLeg}
           >
-            Add Step
+            Add Swap
           </button>
         </div>
 
@@ -744,30 +988,62 @@ export function SwapPanel({
           </div>
         ) : null}
       </div>
+      ) : null}
 
-      {swapError ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">{swapError.message}</div> : null}
-      {swapHash ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#447056]">Swap Tx: {swapHash}</div> : null}
+      {!isSwapLocked ? (
+        <>
+          {swapError ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">{swapError.message}</div> : null}
+          {swapHash ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#447056]">Swap Tx: {swapHash}</div> : null}
 
-      <div className="flex justify-end">
-        <button
-          type="button"
-          className={`border px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
-            canSwap
-              ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98] hover:bg-[#e3deff]'
-              : 'cursor-not-allowed border-[#c8c8c8] bg-[#f1f1f1] text-[#9a9a9a]'
-          }`}
-          onClick={onSwap}
-          disabled={!canSwap}
-        >
-          {isSwapPending ? 'Confirm In Wallet' : isConfirmingSwap ? 'Swapping...' : 'Swap'}
-        </button>
-      </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className={`border px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
+                canSwap
+                  ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98] hover:bg-[#e3deff]'
+                  : 'cursor-not-allowed border-[#c8c8c8] bg-[#f1f1f1] text-[#9a9a9a]'
+              }`}
+              onClick={onSwap}
+              disabled={!canSwap}
+            >
+              {isSwapPending ? 'Confirm In Wallet' : isConfirmingSwap ? 'Swapping...' : 'Swap'}
+            </button>
+          </div>
+        </>
+      ) : null}
 
       <div className="border border-[#b9b9b9] bg-[#f3f3f3] px-3 py-3">
         <div className="mb-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a]">Recent Swap History</div>
-        <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#666]">
-          Swap history is temporarily disabled.
-        </div>
+        {isLoadingSwapHistory ? (
+          <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#666]">Loading swap history...</div>
+        ) : swapHistoryError ? (
+          <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">{swapHistoryError}</div>
+        ) : swapHistoryRows.length === 0 ? (
+          <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#666]">No swaps in this match yet.</div>
+        ) : (
+          <div className="space-y-2">
+            {swapHistoryRows.map((row, index) => (
+              <div key={`${row.transactionHash ?? 'tx'}-${row.logIndex}-${index}`} className="border border-[#c8c8c8] bg-[#f9f9f9] px-2.5 py-2">
+                <div className="flex items-center gap-2 font-mono text-[11px] font-black text-[#4f4f4f]">
+                  {renderTokenIcon(row.tokenIn)}
+                  <span>{formatVirtualAmount(row.amountIn)}</span>
+                  <span>{'->'}</span>
+                  {renderTokenIcon(row.tokenOut)}
+                  <span>{formatVirtualAmount(row.amountOut)}</span>
+                </div>
+                <div className="mt-1 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#666]">
+                  Rate: {formatSwapRateLabel(row.amountIn, row.amountOut, row.tokenIn, row.tokenOut)}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#666]">
+                  <span>
+                    Player:{' '}
+                    {connectedAddress && row.player.toLowerCase() === connectedAddress ? 'YOU' : formatAddress(row.player)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

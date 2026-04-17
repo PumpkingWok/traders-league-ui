@@ -11,7 +11,7 @@ import {
 } from 'wagmi';
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenAvatarUrlByLabel, tokenIndexByChainId, zeroAddress } from '../config/contracts';
-import { compactNumber, formatAddress, formatDurationFromSeconds } from '../utils/format';
+import { compactNumber, formatAddress, formatDurationFromSeconds, formatSpotPriceLabel } from '../utils/format';
 import { SwapPanel } from '../components/SwapPanel';
 
 const platformFeeBase = 10_000n;
@@ -392,6 +392,20 @@ export default function MyMatchesPage() {
       enabled: Boolean(hyperDuelContractAddress && selectedOngoingMatch),
     },
   });
+  const { data: portfolioTokenPriceDecimalsData, isLoading: isLoadingPortfolioPriceDecimals } = useReadContracts({
+    contracts:
+      hyperDuelContractAddress && selectedOngoingMatch
+        ? selectedOngoingMatch.tokensAllowed.map((tokenId) => ({
+            address: hyperDuelContractAddress,
+            abi: hyperDuelAbi,
+            functionName: 'tradingTokens',
+            args: [tokenId],
+          }))
+        : [],
+    query: {
+      enabled: Boolean(hyperDuelContractAddress && selectedOngoingMatch),
+    },
+  });
   const formatCurrentUsd = (value: bigint | null) => {
     if (value === null) return '...';
     const numeric = Number(formatUnits(value, 18));
@@ -432,7 +446,7 @@ export default function MyMatchesPage() {
   );
   const getMatchSelectorLabel = (match: (typeof matches)[number]) => {
     const usdLabels = getCurrentMatchUsdLabels(match);
-    return `#${match.id.toString()} | YOU ${usdLabels.youUsd} USD | Other player ${usdLabels.otherUsd} USD | Countdown ${getCurrentMatchCountdown(match)}`;
+    return `#${match.id.toString()} | YOU ${usdLabels.youUsd} USD | Opponent ${usdLabels.otherUsd} USD | Countdown ${getCurrentMatchCountdown(match)}`;
   };
   const formatTokenUsdValue = (value: bigint | null) => {
     if (value === null) return '-';
@@ -440,11 +454,15 @@ export default function MyMatchesPage() {
     if (!Number.isFinite(numeric)) return `$${compactNumber(formatUnits(value, 18))}`;
     return `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(numeric)}`;
   };
-  const getNetPrizeLabel = (match: (typeof matches)[number]) => {
+  const getPrizeLabels = (match: (typeof matches)[number]) => {
     const grossPrize = match.buyIn * 2n;
     const feeAmount = (grossPrize * platformFeeBps) / platformFeeBase;
     const netPrize = grossPrize - feeAmount;
-    return `${compactNumber(formatUnits(netPrize, buyInTokenDecimals))} ${buyInTokenSymbol}`;
+    return {
+      net: `${compactNumber(formatUnits(netPrize, buyInTokenDecimals))} ${buyInTokenSymbol}`,
+      fee: `${compactNumber(formatUnits(feeAmount, buyInTokenDecimals))} ${buyInTokenSymbol}`,
+      feeBpsLabel: `${(Number(platformFeeBps) / 100).toFixed(2)}%`,
+    };
   };
   const portfolioTokenPriceById = useMemo(() => {
     const map: Record<number, bigint> = { 0: usdVirtualPriceScale };
@@ -524,6 +542,28 @@ export default function MyMatchesPage() {
   const isOtherLeading =
     portfolioTotalsByRole !== null && portfolioTotalsByRole.other > portfolioTotalsByRole.you;
   const getTokenAvatarUrl = (tokenLabel: string) => tokenAvatarUrlByLabel[tokenLabel] ?? null;
+  const currentMatchAllowedTokens = useMemo(() => {
+    if (!selectedOngoingMatch) return [];
+    return selectedOngoingMatch.tokensAllowed.map((tokenId, index) => {
+      const rawPriceDecimals = portfolioTokenPriceDecimalsData?.[index]?.result;
+      const spotPriceDecimals =
+        typeof rawPriceDecimals === 'number' && Number.isFinite(rawPriceDecimals)
+          ? rawPriceDecimals
+          : typeof rawPriceDecimals === 'bigint'
+            ? Number(rawPriceDecimals)
+            : null;
+      return {
+        tokenId,
+        tokenLabel: tokenLabelById[tokenId] ?? `T${tokenId}`,
+        spotPrice: portfolioTokenPriceById[tokenId] ?? null,
+        spotPriceDecimals,
+      };
+    });
+  }, [portfolioTokenPriceById, portfolioTokenPriceDecimalsData, selectedOngoingMatch, tokenLabelById]);
+  const selectedMatchPrizeLabels = useMemo(
+    () => (selectedOngoingMatch ? getPrizeLabels(selectedOngoingMatch) : null),
+    [platformFeeBps, buyInTokenDecimals, buyInTokenSymbol, selectedOngoingMatch],
+  );
   const isYouPlayerA = selectedOngoingMatch?.playerA.toLowerCase() === address?.toLowerCase();
   const tokenSliceColors = ['#8f83ff', '#60a5fa', '#34d399', '#f59e0b', '#ef4444', '#14b8a6', '#a78bfa', '#f472b6'];
   const buildComposition = (role: 'you' | 'other') => {
@@ -764,26 +804,7 @@ export default function MyMatchesPage() {
 
               <div className="border border-[#b9b9b9] bg-[#f9f9f9] px-4 py-4">
                 <div className="grid gap-3 font-mono text-sm font-bold text-[#454545] md:grid-cols-2">
-                  <div><span className="text-[#666]">Match:</span> #{selectedOngoingMatch.id.toString()}</div>
                   <div><span className="text-[#666]">Status:</span> Ongoing</div>
-                  <div className="md:col-span-2">
-                    <span className="text-[#666]">Assets:</span>{' '}
-                    {selectedOngoingMatch.tokensAllowed.length > 0
-                      ? selectedOngoingMatch.tokensAllowed.map((tokenId) => tokenLabelById[tokenId] ?? `T${tokenId}`).join(' • ')
-                      : 'No assets'}
-                  </div>
-                  <div>
-                    <span className="text-[#666]">Current Winner:</span>{' '}
-                    {selectedOngoingMatch.currentWinner.toLowerCase() === zeroAddress ? 'Undecided' : formatAddress(selectedOngoingMatch.currentWinner)}
-                  </div>
-                  <div>
-                    <span className="text-[#666]">YOU:</span>{' '}
-                    {getCurrentMatchUsdLabels(selectedOngoingMatch).youUsd} USD
-                  </div>
-                  <div>
-                    <span className="text-[#666]">Other player:</span>{' '}
-                    {getCurrentMatchUsdLabels(selectedOngoingMatch).otherUsd} USD
-                  </div>
                   <div>
                     <span className="text-[#666]">Players:</span>{' '}
                     {selectedOngoingMatch.playerA.toLowerCase() === address.toLowerCase()
@@ -798,7 +819,10 @@ export default function MyMatchesPage() {
                   </div>
                   <div><span className="text-[#666]">Duration:</span> {formatDurationFromSeconds(selectedOngoingMatch.duration)}</div>
                   <div>
-                    <span className="text-[#666]">Prize (Net):</span> {getNetPrizeLabel(selectedOngoingMatch)}
+                    <span className="text-[#666]">Prize (Net):</span> {selectedMatchPrizeLabels?.net ?? '-'}{' '}
+                    <span className="text-[#666]">
+                      (Fee: {selectedMatchPrizeLabels?.fee ?? '-'} • {selectedMatchPrizeLabels?.feeBpsLabel ?? '-'})
+                    </span>
                   </div>
                   <div>
                     <span className="text-[#666]">Countdown:</span> {getCurrentMatchCountdown(selectedOngoingMatch)}
@@ -818,6 +842,45 @@ export default function MyMatchesPage() {
                 ) : null}
 
                 <div className="mt-4 space-y-4 border-t border-[#d1d1d1] pt-4">
+                  <div className="border border-[#b9b9b9] bg-[#f3f3f3] px-3 py-3">
+                    <div className="mb-2 font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#5a5a5a]">
+                      Allowed Tokens Spot
+                    </div>
+                    {currentMatchAllowedTokens.length === 0 ? (
+                      <div className="font-mono text-xs font-bold text-[#666]">No allowed tokens configured.</div>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {currentMatchAllowedTokens.map((token) => {
+                          const avatarUrl = getTokenAvatarUrl(token.tokenLabel);
+                          return (
+                            <div
+                              key={`allowed-token-${token.tokenId}`}
+                              className="flex items-center justify-between gap-2 border border-[#c8c8c8] bg-[#f9f9f9] px-2.5 py-2"
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#9a9a9a] bg-[#f3f3f3]">
+                                  {avatarUrl ? (
+                                    <img src={avatarUrl} alt={`${token.tokenLabel} logo`} className="h-full w-full object-cover" loading="lazy" />
+                                  ) : (
+                                    <span className="text-[8px] font-black text-[#555]">{token.tokenLabel.slice(0, 3)}</span>
+                                  )}
+                                </span>
+                                <span className="truncate font-mono text-xs font-black text-[#4d4d4d]">
+                                  {token.tokenLabel}
+                                </span>
+                              </div>
+                              <span className="shrink-0 font-mono text-xs font-bold text-[#5b5b5b]">
+                                {isLoadingPortfolioPrices || isLoadingPortfolioPriceDecimals
+                                  ? 'Loading...'
+                                  : formatSpotPriceLabel(token.spotPrice, token.spotPriceDecimals)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="border border-[#b9b9b9] bg-[#f3f3f3] px-3 py-3">
                     {isLoadingPlayerAPortfolio || isLoadingPlayerBPortfolio || isLoadingPortfolioPrices ? (
                       <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#666]">Loading portfolio...</div>
@@ -952,12 +1015,15 @@ export default function MyMatchesPage() {
                       playerA={selectedOngoingMatch.playerA}
                       playerB={selectedOngoingMatch.playerB}
                       buyIn={selectedOngoingMatch.buyIn}
+                      duration={selectedOngoingMatch.duration}
+                      endTs={selectedOngoingMatch.endTs}
                       buyInTokenSymbol={buyInTokenSymbol}
                       buyInTokenDecimals={buyInTokenDecimals}
                       tokensAllowed={selectedOngoingMatch.tokensAllowed}
                       tokenLabelById={tokenLabelById}
                       hyperDuelContractAddress={hyperDuelContractAddress}
                       showMatchDetails={false}
+                      disableSwap={canConcludeSelectedOngoingMatch}
                     />
                   </div>
                 </div>

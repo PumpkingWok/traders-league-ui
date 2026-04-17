@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useChainId, usePublicClient, useReadContract } from 'wagmi';
-import { hyperDuelAbi } from '../config/abis';
+import { formatUnits, type Address } from 'viem';
+import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId } from '../config/contracts';
-import { supportedChains } from '../config/networks';
 
 const howToPlaySteps = [
   {
@@ -49,6 +49,32 @@ export default function HomePage({
     functionName: 'matchId',
     query: {
       enabled: Boolean(hyperDuelContractAddress),
+    },
+  });
+  const { data: buyInTokenAddressData } = useReadContract({
+    address: hyperDuelContractAddress,
+    abi: hyperDuelAbi,
+    functionName: 'buyInToken',
+    query: {
+      enabled: Boolean(hyperDuelContractAddress),
+    },
+  });
+  const buyInTokenAddress = buyInTokenAddressData as Address | undefined;
+  const { data: buyInTokenDecimalsData } = useReadContract({
+    address: buyInTokenAddress,
+    abi: erc20MetadataAbi,
+    functionName: 'decimals',
+    query: {
+      enabled: Boolean(buyInTokenAddress),
+    },
+  });
+  const { data: fundsInGameRawData } = useReadContract({
+    address: buyInTokenAddress,
+    abi: erc20MetadataAbi,
+    functionName: 'balanceOf',
+    args: hyperDuelContractAddress ? [hyperDuelContractAddress] : undefined,
+    query: {
+      enabled: Boolean(buyInTokenAddress && hyperDuelContractAddress),
     },
   });
 
@@ -111,9 +137,23 @@ export default function HomePage({
       { label: 'Open Matches', value: String(statsCounts.open), icon: '01' },
       { label: 'Live Matches', value: String(statsCounts.live), icon: '02' },
       { label: 'Completed Matches', value: String(statsCounts.completed), icon: '03' },
-      { label: 'Supported Chains', value: String(supportedChains.length), icon: '04' },
+      {
+        label: 'Funds In Game',
+        value: (() => {
+          const raw = fundsInGameRawData as bigint | undefined;
+          if (raw === undefined) return '-';
+          const decimals = Number(buyInTokenDecimalsData ?? 6);
+          const numeric = Number(formatUnits(raw, decimals));
+          if (!Number.isFinite(numeric)) return `$${formatUnits(raw, decimals)}`;
+          return `$${new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          }).format(numeric)}`;
+        })(),
+        icon: '04',
+      },
     ],
-    [statsCounts.completed, statsCounts.live, statsCounts.open],
+    [buyInTokenDecimalsData, fundsInGameRawData, statsCounts.completed, statsCounts.live, statsCounts.open],
   );
 
   return (
