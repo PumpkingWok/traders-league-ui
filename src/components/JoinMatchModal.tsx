@@ -144,8 +144,6 @@ export function JoinMatchModal({
               {isConnected && !hasEnoughAllowance ? (
                 <div className="text-[#9a4f4f]">Approve {buyInTokenSymbol} before joining.</div>
               ) : null}
-              {approveError ? <div className="mt-2 break-all text-[#9a4f4f]">{approveError.message}</div> : null}
-              {joinError ? <div className="mt-2 break-all text-[#9a4f4f]">{joinError.message}</div> : null}
               {approveHash ? <div className="mt-2 break-all text-[#447056]">Approve Tx: {approveHash}</div> : null}
               {joinHash ? <div className="mt-2 break-all text-[#447056]">Join Tx: {joinHash}</div> : null}
               {isConfirmingApprove ? <div className="mt-2 text-[#6a6194]">Waiting for approve confirmation...</div> : null}

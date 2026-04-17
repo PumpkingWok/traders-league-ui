@@ -242,11 +242,21 @@ function Footer() {
                   Documentation
                 </div>
                 <div className="flex flex-col gap-2">
-                  <a href="" className={footerItemClass}>
+                  <a
+                    href="https://github.com/PumpkingWok/traders-league-ui"
+                    target="_blank"
+                    rel="noreferrer"
+                    className={footerItemClass}
+                  >
                     <GitHubIcon className="h-3.5 w-3.5" />
                     UI
                   </a>
-                  <a href="" className={footerItemClass}>
+                  <a
+                    href="https://github.com/PumpkingWok/traders-league"
+                    target="_blank"
+                    rel="noreferrer"
+                    className={footerItemClass}
+                  >
                     <GitHubIcon className="h-3.5 w-3.5" />
                     Contracts
                   </a>
@@ -434,7 +444,7 @@ function TournamentNavTeaser({ mode }: { mode: 'top' | 'bottom' }) {
     <div className="group relative">
       <div className={`${teaserClassName} cursor-help`}>Tournaments</div>
       <div
-        className={`pointer-events-none invisible absolute left-1/2 z-30 -translate-x-1/2 border border-[#9c9c9c] bg-[#fff7d8] px-3 py-2 text-center font-mono text-[10px] font-black uppercase tracking-[0.08em] text-[#6a5600] opacity-0 shadow-[0_8px_18px_rgba(0,0,0,0.14)] transition duration-150 group-hover:visible group-hover:opacity-100 ${tooltipClassName}`}
+        className={`pointer-events-none invisible absolute left-1/2 z-30 -translate-x-1/2 border border-[#9c9c9c] bg-[#ffffff] px-3 py-2 text-center font-mono text-[10px] font-black uppercase tracking-[0.08em] text-[#6a5600] opacity-0 shadow-[0_8px_18px_rgba(0,0,0,0.14)] transition duration-150 group-hover:visible group-hover:opacity-100 ${tooltipClassName}`}
       >
         Coming Soon: Tournaments Mode
       </div>

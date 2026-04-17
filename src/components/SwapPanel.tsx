@@ -419,16 +419,13 @@ export function SwapPanel({
   const traderFeePercent = Number(traderFeeBps) / 100;
 
   const simulationLegs = useMemo(() => {
-    let previousOutAmount: bigint | null = null;
     const rows = swapLegs.map((leg, index) => {
-      const usePreviousOutput = index > 0 && leg.usePreviousOutput;
       const tokenInPrice = tokenPriceById[leg.tokenIn];
       const tokenOutPrice = tokenPriceById[leg.tokenOut];
       if (!tokenInPrice || !tokenOutPrice || tokenOutPrice === 0n || leg.tokenIn === leg.tokenOut) {
-        previousOutAmount = null;
         return {
           ...leg,
-          usePreviousOutput,
+          usePreviousOutput: false,
           parsedAmountIn: null,
           grossAmountOut: null,
           feeInOutToken: null,
@@ -439,9 +436,7 @@ export function SwapPanel({
       }
 
       let parsedAmountIn: bigint | null = null;
-      if (usePreviousOutput) {
-        parsedAmountIn = previousOutAmount;
-      } else if (leg.amountIn) {
+      if (leg.amountIn) {
         try {
           parsedAmountIn = parseUnits(leg.amountIn, virtualAssetDecimals);
         } catch {
@@ -450,10 +445,9 @@ export function SwapPanel({
       }
 
       if (!parsedAmountIn || parsedAmountIn <= 0n) {
-        previousOutAmount = null;
         return {
           ...leg,
-          usePreviousOutput,
+          usePreviousOutput: false,
           parsedAmountIn: null,
           grossAmountOut: null,
           feeInOutToken: null,
@@ -467,11 +461,10 @@ export function SwapPanel({
       const feeInOutToken = (grossOut * traderFeeBps) / platformFeeBase;
       const amountOut = grossOut - feeInOutToken;
       const feeInUsd = (feeInOutToken * tokenOutPrice) / usdVirtualPriceScale;
-      previousOutAmount = amountOut;
 
       return {
         ...leg,
-        usePreviousOutput,
+        usePreviousOutput: false,
         parsedAmountIn,
         grossAmountOut: grossOut,
         feeInOutToken,
@@ -485,7 +478,6 @@ export function SwapPanel({
   }, [swapLegs, tokenPriceById, traderFeeBps]);
 
   const allLegsValid = simulationLegs.length > 0 && simulationLegs.every((leg) => leg.isValid && leg.parsedAmountIn && leg.amountOut);
-  const hasAnyFilledSwapInput = simulationLegs.some((leg) => Boolean(leg.isValid && leg.parsedAmountIn && leg.amountOut));
   const isSwapLocked = disableSwap;
   const canSwap =
     isConnected &&
@@ -522,7 +514,7 @@ export function SwapPanel({
         tokenIn: selectableTokens[0] ?? 0,
         tokenOut: selectableTokens[1] ?? selectableTokens[0] ?? 0,
         amountIn: '',
-        usePreviousOutput: true,
+        usePreviousOutput: false,
       },
     ]);
   };
@@ -643,7 +635,7 @@ export function SwapPanel({
     playerATotalUsd === null || playerBTotalUsd === null
       ? 'Undecided'
       : playerATotalUsd === playerBTotalUsd
-        ? 'Tie'
+        ? 'Draw'
         : playerATotalUsd > playerBTotalUsd
           ? formatAddress(playerA)
           : formatAddress(playerB);
@@ -728,7 +720,6 @@ export function SwapPanel({
             </div>
             <div><span className="text-[#666]">Platform Fees:</span> {platformFeesLabel}</div>
           </div>
-          {matchDetailsError ? <div className="mt-2 font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">{matchDetailsError}</div> : null}
         </div>
       ) : null}
 
@@ -785,9 +776,8 @@ export function SwapPanel({
                       <input
                         className="w-full bg-transparent font-mono text-4xl font-black text-[#2f2f2f] outline-none placeholder:text-[#9a9a9a] disabled:text-[#7f7f7f]"
                         type="text"
-                        placeholder={leg.usePreviousOutput ? 'Auto' : '0.0'}
+                        placeholder="0.0"
                         value={leg.amountIn}
-                        disabled={leg.usePreviousOutput}
                         onChange={(event) => updateSwapLeg(leg.id, { amountIn: event.target.value })}
                       />
                       <div className="mt-1 font-mono text-sm font-bold text-[#666]">
@@ -892,44 +882,46 @@ export function SwapPanel({
                 </div>
               </div>
 
-              {index > 0 ? (
-                <label className="mt-2 flex items-center gap-2 font-mono text-xs font-bold text-[#5f5f5f]">
-                  <input
-                    type="checkbox"
-                    checked={leg.usePreviousOutput}
-                    onChange={(event) => updateSwapLeg(leg.id, { usePreviousOutput: event.target.checked })}
-                  />
-                  Use previous step output as this step input
-                </label>
-              ) : null}
-
-              {leg.isValid ? (
-                <div className="mt-2 font-mono text-xs font-bold text-[#555]">
-                  {`${formatVirtualAmount(leg.parsedAmountIn)} ${getTokenSymbol(leg.tokenIn)} -> ${formatVirtualAmount(leg.amountOut)} ${getTokenSymbol(leg.tokenOut)}`}
-                </div>
-              ) : null}
               {leg.tokenIn === leg.tokenOut ? (
                 <div className="mt-2 font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">
                   Sell and Buy token must be different.
                 </div>
               ) : null}
               <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
-                Price: {getTokenSymbol(leg.tokenIn)} {tokenPriceLabel(leg.tokenIn)} {'->'} {getTokenSymbol(leg.tokenOut)} {tokenPriceLabel(leg.tokenOut)}
+                Swap Fee: {traderFeePercent.toFixed(traderFeePercent % 1 === 0 ? 0 : 2)}% ({estimatedFeeInUsd === null ? '-' : `${compactNumber(formatUnits(estimatedFeeInUsd, virtualAssetDecimals))} vUSD`} total)
               </div>
               <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
-                Swap Fee: {traderFeePercent.toFixed(traderFeePercent % 1 === 0 ? 0 : 2)}%
+                Exchange Rate (incl. fees):{' '}
+                {firstLeg && lastLeg ? `${getTokenSymbol(firstLeg.tokenIn)}/${getTokenSymbol(lastLeg.tokenOut)} ${exchangeRateLabel}` : '-'}
+              </div>
+              <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
+                Projected Your Total:{' '}
+                {projectedConnectedTotalUsd === null
+                  ? 'Connect as a match player to simulate post-swap outcome'
+                  : `${formatVirtualUsd(connectedPlayerTotalUsd)} -> ${formatVirtualUsd(projectedConnectedTotalUsd)}`}
               </div>
               </>
               ) : (
-                <div className="grid gap-2 border border-[#b9b9b9] bg-[#f5f5f5] px-3 py-2 font-mono text-xs font-bold text-[#4e4e4e] md:grid-cols-3">
-                  <div>
-                    Route: {renderTokenBadge(leg.tokenIn)} {'->'} {renderTokenBadge(leg.tokenOut)}
+                <div className="grid gap-2 border border-[#b9b9b9] bg-[#f5f5f5] px-3 py-2 font-mono text-xs font-bold text-[#4e4e4e] md:grid-cols-3 md:items-center md:text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="text-[#666]">Route:</span>
+                    <span className="inline-flex items-center gap-2">
+                      {renderTokenBadge(leg.tokenIn)} {'->'} {renderTokenBadge(leg.tokenOut)}
+                    </span>
                   </div>
-                  <div>
-                    Amounts: {formatVirtualAmount(leg.parsedAmountIn)} {getTokenSymbol(leg.tokenIn)} {'->'} {formatVirtualAmount(leg.amountOut)} {getTokenSymbol(leg.tokenOut)}
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="text-[#666]">Amounts:</span>
+                    <span>
+                      {formatVirtualAmount(leg.parsedAmountIn)} {getTokenSymbol(leg.tokenIn)} {'->'} {formatVirtualAmount(leg.amountOut)} {getTokenSymbol(leg.tokenOut)}
+                    </span>
                   </div>
-                  <div>
-                    Price: {tokenPriceLabel(leg.tokenIn)} {'->'} {tokenPriceLabel(leg.tokenOut)}
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="text-[#666]">Rate:</span>
+                    <span>
+                      {leg.parsedAmountIn && leg.amountOut && leg.parsedAmountIn > 0n
+                        ? `1 ${getTokenSymbol(leg.tokenIn)} = ${compactNumber(formatUnits((leg.amountOut * 1_000_000_000_000n) / leg.parsedAmountIn, 12))} ${getTokenSymbol(leg.tokenOut)}`
+                        : '-'}
+                    </span>
                   </div>
                 </div>
               )}
@@ -947,52 +939,11 @@ export function SwapPanel({
           </button>
         </div>
 
-        {hasAnyFilledSwapInput ? (
-          <div className="mt-3 grid gap-2 border border-[#c2c2c2] bg-[#f9f9f9] px-3 py-3 font-mono text-xs font-bold text-[#4a4a4a] md:grid-cols-2">
-            <div><span className="text-[#666]">Swap Fee:</span> {traderFeePercent.toFixed(traderFeePercent % 1 === 0 ? 0 : 2)}%</div>
-            <div><span className="text-[#666]">Swaps:</span> {simulationLegs.length}</div>
-            <div>
-              <span className="text-[#666]">Price In (Swap 1):</span>{' '}
-              {renderTokenBadge(simulationLegs[0]?.tokenIn ?? 0)} {tokenPriceLabel(simulationLegs[0]?.tokenIn ?? 0)}
-            </div>
-            <div>
-              <span className="text-[#666]">Price Out (Last):</span>{' '}
-              {renderTokenBadge(simulationLegs[simulationLegs.length - 1]?.tokenOut ?? 0)} {tokenPriceLabel(simulationLegs[simulationLegs.length - 1]?.tokenOut ?? 0)}
-            </div>
-            <div>
-              <span className="text-[#666]">Estimated Final Output:</span>{' '}
-              {estimatedAmountOut === null
-                ? '-'
-                : `${compactNumber(formatUnits(estimatedAmountOut, virtualAssetDecimals))} ${getTokenSymbol(simulationLegs[simulationLegs.length - 1]?.tokenOut ?? 0)}`}
-            </div>
-            <div>
-              <span className="text-[#666]">Estimated Total Swap Fees:</span>{' '}
-              {estimatedFeeInUsd === null ? '-' : `${compactNumber(formatUnits(estimatedFeeInUsd, virtualAssetDecimals))} vUSD`}
-            </div>
-            <div>
-              <span className="text-[#666]">Exchange Rate (incl. fees):</span>{' '}
-              {firstLeg && lastLeg ? `${getTokenSymbol(firstLeg.tokenIn)}/${getTokenSymbol(lastLeg.tokenOut)} ${exchangeRateLabel}` : '-'}
-            </div>
-            <div>
-              <span className="text-[#666]">Trade routed through:</span>{' '}
-              {simulationLegs.map((leg) => `${getTokenSymbol(leg.tokenIn)}→${getTokenSymbol(leg.tokenOut)}`).join(' • ')}
-            </div>
-            <div><span className="text-[#666]">Estimated TX cost:</span> -</div>
-            <div><span className="text-[#666]">Slippage:</span> 0.03%</div>
-            <div className="md:col-span-2">
-              <span className="text-[#666]">Projected Your Total:</span>{' '}
-              {projectedConnectedTotalUsd === null
-                ? 'Connect as a match player to simulate post-swap outcome'
-                : `${formatVirtualUsd(connectedPlayerTotalUsd)} -> ${formatVirtualUsd(projectedConnectedTotalUsd)}`}
-            </div>
-          </div>
-        ) : null}
       </div>
       ) : null}
 
       {!isSwapLocked ? (
         <>
-          {swapError ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">{swapError.message}</div> : null}
           {swapHash ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#447056]">Swap Tx: {swapHash}</div> : null}
 
           <div className="flex justify-end">
@@ -1016,8 +967,6 @@ export function SwapPanel({
         <div className="mb-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a]">Recent Swap History</div>
         {isLoadingSwapHistory ? (
           <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#666]">Loading swap history...</div>
-        ) : swapHistoryError ? (
-          <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#9a4f4f]">{swapHistoryError}</div>
         ) : swapHistoryRows.length === 0 ? (
           <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#666]">No swaps in this match yet.</div>
         ) : (

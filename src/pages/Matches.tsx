@@ -65,9 +65,11 @@ export default function MatchesPage({
   const [concludingMatchId, setConcludingMatchId] = useState<bigint | null>(null);
   const [isPrizeInfoOpen, setIsPrizeInfoOpen] = useState(false);
   const hideCountdownAndWinner = matchFilter === 'to-start';
-  const matchTableGridTemplate = hideCountdownAndWinner
-    ? 'repeat(8, minmax(0, 1fr))'
-    : 'repeat(10, minmax(0, 1fr))';
+  const hideStatus = matchFilter === 'finish' || matchFilter === 'to-start' || matchFilter === 'current';
+  const hideAction = matchFilter === 'finish' || matchFilter === 'current';
+  const visibleColumns =
+    6 + (hideCountdownAndWinner ? 0 : 2) + (hideStatus ? 0 : 1) + (hideAction ? 0 : 1);
+  const matchTableGridTemplate = `repeat(${visibleColumns}, minmax(0, 1fr))`;
   const { data: concludeMatchHash, error: concludeMatchError, isPending: isConcludePending, writeContract: writeConcludeMatch } = useWriteContract();
   const { isLoading: isConcludeConfirming, isSuccess: isConcludeConfirmed } = useWaitForTransactionReceipt({
     hash: concludeMatchHash,
@@ -337,8 +339,20 @@ export default function MatchesPage({
       const isPlayerAConnected = Boolean(connectedAddress) && match.playerA.toLowerCase() === connectedAddress;
       const isPlayerBConnected = Boolean(connectedAddress) && match.playerB.toLowerCase() === connectedAddress;
       const isJoined = Boolean(isPlayerAConnected || isPlayerBConnected);
-      const canJoin = match.status === 0 && match.playerB.toLowerCase() === zeroAddress && !isJoined;
       const playersCount = Number(match.playerA.toLowerCase() !== zeroAddress) + Number(match.playerB.toLowerCase() !== zeroAddress);
+      const hasOpenSeat =
+        match.status === 0 &&
+        playersCount < 2 &&
+        match.playerB.toLowerCase() === zeroAddress;
+      const canJoin = hasOpenSeat && !isJoined;
+      const playersTooltip =
+        playersCount === 2
+          ? `Players: ${match.playerA} vs ${match.playerB}`
+          : match.playerA.toLowerCase() === zeroAddress
+            ? undefined
+            : isPlayerAConnected
+              ? `First player: YOU (${match.playerA})`
+              : `First player: ${match.playerA}`;
       const statusLabel = match.status === 0 ? 'To Start' : match.status === 1 ? 'Ongoing' : 'Finished';
       const assetsLabel =
         match.tokensAllowed.length > 0
@@ -349,7 +363,7 @@ export default function MatchesPage({
       const winnerLabel =
         match.status >= 2
           ? winnerAddress === zeroAddress
-            ? 'Tie'
+            ? 'Draw'
             : formatAddress(match.winner)
           : match.status === 1
             ? currentWinnerAddress === zeroAddress
@@ -380,9 +394,13 @@ export default function MatchesPage({
         duration: formatDurationFromSeconds(match.duration),
         countdown: countdownLabel,
         players: `${playersCount}/2`,
+        playersTooltip,
         statusCode: match.status,
         status: statusLabel,
         winner: winnerLabel,
+        playerAAddress: match.playerA,
+        playerBAddress: match.playerB,
+        winnerAddress: match.winner,
         isJoined,
         canJoin,
         canConclude,
@@ -488,14 +506,9 @@ export default function MatchesPage({
               </div>
             </div>
 
-            <div className="overflow-hidden border border-[#b8b8b8] bg-[#f9f9f9]">
-              {matchesError && displayMatches.length > 0 ? (
-                <div className="border-b border-[#d4a2a2] bg-[#f8e6e6] px-4 py-3 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#8a4747]">
-                  {matchesError}
-                </div>
-              ) : null}
+            <div className="overflow-visible border border-[#b8b8b8] bg-[#f9f9f9]">
               <div
-                className="hidden w-full gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid"
+                className="hidden w-full gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 text-center font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid"
                 style={{ gridTemplateColumns: matchTableGridTemplate }}
               >
                 <div>Match ID</div>
@@ -522,9 +535,11 @@ export default function MatchesPage({
                 <div>Duration</div>
                 {!hideCountdownAndWinner ? <div>Countdown</div> : null}
                 <div>Players</div>
-                <div>Status</div>
-                {!hideCountdownAndWinner ? <div>Winner</div> : null}
-                <div>Action</div>
+                {!hideStatus ? <div>Status</div> : null}
+                {!hideCountdownAndWinner ? (
+                  <div className="text-center">{matchFilter === 'current' ? 'Current Winner' : 'Winner'}</div>
+                ) : null}
+                {!hideAction ? <div>Action</div> : null}
               </div>
 
               <div className="divide-y divide-[#d3d3d3]">
@@ -537,15 +552,9 @@ export default function MatchesPage({
                     No HyperDuel contract configured for this network.
                   </div>
                 ) : displayMatches.length === 0 ? (
-                  matchesError ? (
-                    <div className="px-4 py-6 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#9a4f4f]">
-                      Failed to load matches
-                    </div>
-                  ) : (
-                    <div className="px-4 py-6 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#6b6b6b]">
-                      No matches for this filter
-                    </div>
-                  )
+                  <div className="px-4 py-6 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#6b6b6b]">
+                    No matches for this filter
+                  </div>
                 ) : (
                   displayMatches.map((match) => (
                     <MatchRow
@@ -553,6 +562,8 @@ export default function MatchesPage({
                       match={match}
                       gridTemplateColumns={matchTableGridTemplate}
                       hideCountdownAndWinner={hideCountdownAndWinner}
+                      hideStatus={hideStatus}
+                      hideAction={hideAction}
                       onConclude={() => handleConcludeMatch(match.matchId)}
                       onJoin={() => setSelectedMatchToJoin(match)}
                     />

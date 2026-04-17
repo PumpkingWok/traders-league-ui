@@ -13,9 +13,13 @@ export type Match = {
   duration: string;
   countdown?: string;
   players: string;
+  playersTooltip?: string;
   statusCode: number;
   status: string;
   winner: string;
+  playerAAddress?: Address;
+  playerBAddress?: Address;
+  winnerAddress?: Address;
   isJoined?: boolean;
   canJoin?: boolean;
   isReservedForYou?: boolean;

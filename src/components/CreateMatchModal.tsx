@@ -585,12 +585,6 @@ export function CreateMatchModal({
               {hasUnknownAssetSelection ? (
                 <div className="mt-2 text-[#9a4f4f]">One or more selected assets is missing a contract token id mapping.</div>
               ) : null}
-              {approveError && !isUserRejectedError(approveError) ? (
-                <div className="mt-2 break-all text-[#9a4f4f]">{approveError.message}</div>
-              ) : null}
-              {createMatchError && !isUserRejectedError(createMatchError) ? (
-                <div className="mt-2 break-all text-[#9a4f4f]">{createMatchError.message}</div>
-              ) : null}
               {approveHash ? <div className="mt-2 break-all text-[#447056]">Approve Tx: {approveHash}</div> : null}
               {createMatchHash ? <div className="mt-2 break-all text-[#447056]">Match Tx: {createMatchHash}</div> : null}
               {isConfirmingApprove ? <div className="mt-2 text-[#6a6194]">Waiting for approve confirmation...</div> : null}

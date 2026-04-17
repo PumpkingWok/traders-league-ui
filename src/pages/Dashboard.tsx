@@ -301,11 +301,6 @@ export default function DashboardPage() {
           <div className="font-mono text-lg font-black uppercase tracking-[0.08em] text-[#363636]">Stats</div>
         </div>
         <div className="space-y-4 px-4 py-4 md:px-6 md:py-6">
-          {error ? (
-            <div className="border border-[#d4a2a2] bg-[#f8e6e6] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#8a4747]">
-              {error}
-            </div>
-          ) : null}
           {isLoading ? (
             <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#5a5a5a]">Loading dashboard stats...</div>
           ) : (
@@ -393,12 +388,13 @@ export default function DashboardPage() {
             <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#6b6b6b]">No matches yet.</div>
           ) : (
             <div className="overflow-hidden border border-[#b8b8b8] bg-[#f9f9f9]">
-              <div className="hidden grid-cols-[0.8fr_1.4fr_0.8fr_0.8fr_1fr] gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid">
+              <div className="hidden grid-cols-[0.8fr_1.4fr_0.8fr_0.8fr_0.8fr_1fr] gap-4 border-b border-[#cfcfcf] bg-[#eeeeee] px-4 py-3 text-center font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5a5a5a] md:grid">
                 <div>Match</div>
                 <div>Players</div>
                 <div>Status</div>
                 <div>Buy-in</div>
                 <div>Outcome</div>
+                <div>Portfolio Change</div>
               </div>
               <div className="divide-y divide-[#d3d3d3]">
                 {stats.recent.map((match) => {
@@ -411,16 +407,32 @@ export default function DashboardPage() {
                         : match.winner.toLowerCase() === address.toLowerCase()
                           ? 'Win'
                           : 'Loss';
+                  const connectedAddress = address.toLowerCase();
+                  const playersLabel =
+                    match.playerA.toLowerCase() === connectedAddress
+                      ? `YOU vs ${formatAddress(match.playerB)}`
+                      : match.playerB.toLowerCase() === connectedAddress
+                        ? `${formatAddress(match.playerA)} vs YOU`
+                        : `${formatAddress(match.playerA)} vs ${formatAddress(match.playerB)}`;
+                  const portfolioChangeLabel =
+                    match.status !== 2
+                      ? '-'
+                      : match.winner.toLowerCase() === zeroAddress
+                        ? '-'
+                        : match.winner.toLowerCase() === connectedAddress
+                          ? `+${compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))}`
+                          : `-${compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))}`;
                   return (
                     <div
                       key={`dashboard-recent-${match.id.toString()}`}
-                      className="grid gap-4 bg-[#f9f9f9] px-4 py-4 font-mono text-sm font-bold text-[#3b3b3b] md:grid-cols-[0.8fr_1.4fr_0.8fr_0.8fr_1fr] md:items-center"
+                      className="grid gap-4 bg-[#f9f9f9] px-4 py-4 text-center font-mono text-sm font-bold text-[#3b3b3b] md:grid-cols-[0.8fr_1.4fr_0.8fr_0.8fr_0.8fr_1fr] md:items-center"
                     >
                       <div>#{match.id.toString()}</div>
-                      <div>{`${formatAddress(match.playerA)} vs ${formatAddress(match.playerB)}`}</div>
+                      <div>{playersLabel}</div>
                       <div>{statusLabel}</div>
                       <div>{compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))}</div>
                       <div>{outcomeLabel}</div>
+                      <div>{portfolioChangeLabel}</div>
                     </div>
                   );
                 })}
