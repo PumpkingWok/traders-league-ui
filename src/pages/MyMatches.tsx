@@ -13,6 +13,8 @@ import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenAvatarUrlByLabel, tokenIndexByChainId, zeroAddress } from '../config/contracts';
 import { compactNumber, formatAddress, formatDurationFromSeconds, formatSpotPriceLabel } from '../utils/format';
 import { SwapPanel } from '../components/SwapPanel';
+import { JoinMatchModal } from '../components/JoinMatchModal';
+import { type Match } from '../types/match';
 
 const platformFeeBase = 10_000n;
 const usdVirtualPriceScale = 10_000n;
@@ -71,6 +73,7 @@ export default function MyMatchesPage() {
   const [selectedOngoingMatchId, setSelectedOngoingMatchId] = useState<bigint | null>(null);
   const [concludingMatchId, setConcludingMatchId] = useState<bigint | null>(null);
   const [unjoiningMatchId, setUnjoiningMatchId] = useState<bigint | null>(null);
+  const [selectedReservedMatchToJoin, setSelectedReservedMatchToJoin] = useState<Match | null>(null);
   const [activeSection, setActiveSection] = useState<'current' | 'to-start' | 'history'>('current');
   const [isMatchSelectorOpen, setIsMatchSelectorOpen] = useState(false);
   const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
@@ -194,12 +197,17 @@ export default function MyMatchesPage() {
               return null;
             }
 
-            const tokensAllowed = (await publicClient.readContract({
-              address: hyperDuelContractAddress,
-              abi: hyperDuelAbi,
-              functionName: 'getMatchTokensAllowed',
-              args: [id],
-            })) as readonly number[] | readonly bigint[];
+            let tokensAllowed: readonly number[] | readonly bigint[] = [];
+            try {
+              tokensAllowed = (await publicClient.readContract({
+                address: hyperDuelContractAddress,
+                abi: hyperDuelAbi,
+                functionName: 'getMatchTokensAllowed',
+                args: [id],
+              })) as readonly number[] | readonly bigint[];
+            } catch {
+              tokensAllowed = [];
+            }
 
             let playerATotalUsd: bigint | null = null;
             let playerBTotalUsd: bigint | null = null;
@@ -629,7 +637,7 @@ export default function MyMatchesPage() {
   };
   const getWinnerLabel = (match: (typeof matches)[number]) => {
     if (match.status === 2) {
-      if (match.winner.toLowerCase() === zeroAddress) return 'Tie';
+      if (match.winner.toLowerCase() === zeroAddress) return 'Draw';
       const connectedAddress = address?.toLowerCase();
       if (!connectedAddress) return formatAddress(match.winner);
       return match.winner.toLowerCase() === connectedAddress ? 'Won' : 'Lost';
@@ -738,12 +746,6 @@ export default function MyMatchesPage() {
           </div>
         </div>
         <div className="space-y-4 px-4 py-4 md:px-6 md:py-6">
-          {error ? (
-            <div className="border border-[#d4a2a2] bg-[#f8e6e6] px-4 py-3 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#8a4747]">
-              {error}
-            </div>
-          ) : null}
-
           {isLoading ? (
             <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#5a5a5a]">Loading your matches...</div>
           ) : ongoingMatches.length === 0 || !selectedOngoingMatch ? (
@@ -1121,14 +1123,40 @@ export default function MyMatchesPage() {
                         <div>{compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} {buyInTokenSymbol}</div>
                         <div>{formatDurationFromSeconds(match.duration)}</div>
                         <div className="flex justify-center">
-                          <button
-                            type="button"
-                            className="border border-[#b9b9b9] bg-[#f7f7f7] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec] disabled:cursor-not-allowed disabled:border-[#c8c8c8] disabled:bg-[#f1f1f1] disabled:text-[#9a9a9a]"
-                            onClick={() => handleUnjoinMatch(match.id)}
-                            disabled={isUnjoiningMatch(match.id)}
-                          >
-                            {isUnjoiningMatch(match.id) ? 'Unjoining...' : 'Unjoin'}
-                          </button>
+                          {match.playerB.toLowerCase() === address.toLowerCase() ? (
+                            <button
+                              type="button"
+                              className="border border-[#8f83ff] bg-[#ece9ff] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#433d98] hover:bg-[#e3deff] disabled:cursor-not-allowed disabled:border-[#bdb8e6] disabled:bg-[#efedf8] disabled:text-[#7a77a2]"
+                              onClick={() =>
+                                setSelectedReservedMatchToJoin({
+                                  id: `#${match.id.toString()}`,
+                                  matchId: match.id,
+                                  buyInRaw: match.buyIn,
+                                  assets:
+                                    match.tokensAllowed.length > 0
+                                      ? match.tokensAllowed.map((tokenId) => tokenLabelById[tokenId] ?? `T${tokenId}`).join(' • ')
+                                      : 'No assets',
+                                  buyIn: `${compactNumber(formatUnits(match.buyIn, buyInTokenDecimals))} ${buyInTokenSymbol}`,
+                                  duration: formatDurationFromSeconds(match.duration),
+                                  players: getToStartPlayersLabel(match),
+                                  statusCode: 0,
+                                  status: 'To Start',
+                                  winner: '-',
+                                })
+                              }
+                            >
+                              Join
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="border border-[#b9b9b9] bg-[#f7f7f7] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec] disabled:cursor-not-allowed disabled:border-[#c8c8c8] disabled:bg-[#f1f1f1] disabled:text-[#9a9a9a]"
+                              onClick={() => handleUnjoinMatch(match.id)}
+                              disabled={isUnjoiningMatch(match.id)}
+                            >
+                              {isUnjoiningMatch(match.id) ? 'Unjoining...' : 'Unjoin'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1140,6 +1168,17 @@ export default function MyMatchesPage() {
         </div>
       </section>
       ) : null}
+
+      <JoinMatchModal
+        isOpen={Boolean(selectedReservedMatchToJoin)}
+        match={selectedReservedMatchToJoin}
+        buyInTokenAddress={buyInTokenAddressData as Address | undefined}
+        buyInTokenSymbol={buyInTokenSymbol}
+        buyInTokenDecimals={buyInTokenDecimals}
+        hyperDuelContractAddress={hyperDuelContractAddress}
+        onJoined={() => setMatchesReloadNonce((value) => value + 1)}
+        onClose={() => setSelectedReservedMatchToJoin(null)}
+      />
 
       {activeSection === 'history' ? (
         <section className="border border-[#a8a8a8] bg-[#f4f4f4]">
