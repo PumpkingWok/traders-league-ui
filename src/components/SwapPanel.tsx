@@ -13,7 +13,7 @@ const virtualAssetDecimals = 18;
 const platformFeeBase = 10_000n;
 const tokenPriceDecimals = 4;
 const usdVirtualPriceScale = 10_000n;
-const subgraphSwapHistoryUrl = (import.meta.env.VITE_GOLDSKY_SUBGRAPH_URL ?? '').trim();
+const subgraphSwapHistoryUrl = (__GOLDSKY_SUBGRAPH_URL__ ?? '').trim();
 const maxSubgraphSwapRows = 300;
 
 type SwapDraftLeg = {
@@ -351,7 +351,7 @@ export function SwapPanel({
 
     try {
       if (!subgraphSwapHistoryUrl) {
-        throw new Error('Missing VITE_GOLDSKY_SUBGRAPH_URL. Swap history is available only via Goldsky.');
+        throw new Error('Missing GOLDSKY_SUBGRAPH_URL. Swap history is available only via Goldsky.');
       }
       const fromSubgraph = await fetchSwapHistoryFromSubgraph({
         endpoint: subgraphSwapHistoryUrl,
@@ -654,7 +654,6 @@ export function SwapPanel({
   const prizePoolFeeAmount = (prizePoolGross * platformFeeBps) / platformFeeBase;
   const prizePoolNet = prizePoolGross - prizePoolFeeAmount;
   const platformFeesLabel = `${platformFeePercent.toFixed(platformFeePercent % 1 === 0 ? 0 : 2)}% (${compactNumber(formatUnits(prizePoolFeeAmount, buyInTokenDecimals))} ${buyInTokenSymbol})`;
-  const estimatedAmountOut = simulationLegs[simulationLegs.length - 1]?.amountOut ?? null;
   const estimatedFeeInUsd = simulationLegs.reduce<bigint | null>((accumulator, leg) => {
     if (!leg.feeInUsd) return accumulator;
     return (accumulator ?? 0n) + leg.feeInUsd;
@@ -691,12 +690,32 @@ export function SwapPanel({
   };
   const firstLeg = simulationLegs[0];
   const lastLeg = simulationLegs[simulationLegs.length - 1];
+  const routeAmountOutForOneIn = useMemo(() => {
+    if (simulationLegs.length === 0) return null;
+
+    let amountInRoute = 10n ** 18n;
+    for (const leg of simulationLegs) {
+      const tokenInPrice = tokenPriceById[leg.tokenIn];
+      const tokenOutPrice = tokenPriceById[leg.tokenOut];
+      if (!tokenInPrice || !tokenOutPrice || tokenOutPrice === 0n || leg.tokenIn === leg.tokenOut) {
+        return null;
+      }
+
+      const grossOut = (amountInRoute * tokenInPrice) / tokenOutPrice;
+      const feeInOutToken = (grossOut * traderFeeBps) / platformFeeBase;
+      amountInRoute = grossOut - feeInOutToken;
+    }
+
+    return amountInRoute;
+  }, [simulationLegs, tokenPriceById, traderFeeBps]);
   const exchangeRateLabel = useMemo(() => {
-    if (!firstLeg || !lastLeg || !firstLeg.parsedAmountIn || !estimatedAmountOut || firstLeg.parsedAmountIn === 0n) return '-';
-    const inPerOut = Number(formatUnits((estimatedAmountOut * 10n ** 18n) / firstLeg.parsedAmountIn, 18));
-    if (!Number.isFinite(inPerOut)) return '-';
+    if (!routeAmountOutForOneIn) return '-';
+    const inPerOut = Number(formatUnits(routeAmountOutForOneIn, 18));
+    if (!Number.isFinite(inPerOut)) {
+      return compactNumber(formatUnits(routeAmountOutForOneIn, 18));
+    }
     return compactNumber(inPerOut.toFixed(8));
-  }, [estimatedAmountOut, firstLeg, lastLeg]);
+  }, [routeAmountOutForOneIn]);
 
   return (
     <div className="space-y-3">
@@ -887,19 +906,23 @@ export function SwapPanel({
                   Sell and Buy token must be different.
                 </div>
               ) : null}
-              <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
-                Swap Fee: {traderFeePercent.toFixed(traderFeePercent % 1 === 0 ? 0 : 2)}% ({estimatedFeeInUsd === null ? '-' : `${compactNumber(formatUnits(estimatedFeeInUsd, virtualAssetDecimals))} vUSD`} total)
-              </div>
+              {leg.amountIn.trim().length > 0 ? (
+                <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
+                  Swap Fee: {traderFeePercent.toFixed(traderFeePercent % 1 === 0 ? 0 : 2)}%
+                </div>
+              ) : null}
               <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
                 Exchange Rate (incl. fees):{' '}
                 {firstLeg && lastLeg ? `${getTokenSymbol(firstLeg.tokenIn)}/${getTokenSymbol(lastLeg.tokenOut)} ${exchangeRateLabel}` : '-'}
               </div>
-              <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
-                Projected Your Total:{' '}
-                {projectedConnectedTotalUsd === null
-                  ? 'Connect as a match player to simulate post-swap outcome'
-                  : `${formatVirtualUsd(connectedPlayerTotalUsd)} -> ${formatVirtualUsd(projectedConnectedTotalUsd)}`}
-              </div>
+              {leg.amountIn.trim().length > 0 ? (
+                <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
+                  Projected Your Total:{' '}
+                  {projectedConnectedTotalUsd === null
+                    ? '-'
+                    : `${formatVirtualUsd(connectedPlayerTotalUsd)} -> ${formatVirtualUsd(projectedConnectedTotalUsd)}`}
+                </div>
+              ) : null}
               </>
               ) : (
                 <div className="grid gap-2 border border-[#b9b9b9] bg-[#f5f5f5] px-3 py-2 font-mono text-xs font-bold text-[#4e4e4e] md:grid-cols-3 md:items-center md:text-center">

@@ -63,6 +63,7 @@ export default function MatchesPage({
   const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
   const [matchesReloadNonce, setMatchesReloadNonce] = useState(0);
   const [concludingMatchId, setConcludingMatchId] = useState<bigint | null>(null);
+  const [unjoiningMatchId, setUnjoiningMatchId] = useState<bigint | null>(null);
   const [isPrizeInfoOpen, setIsPrizeInfoOpen] = useState(false);
   const hideCountdownAndWinner = matchFilter === 'to-start';
   const hideStatus = matchFilter === 'finish' || matchFilter === 'to-start' || matchFilter === 'current';
@@ -73,6 +74,15 @@ export default function MatchesPage({
   const { data: concludeMatchHash, error: concludeMatchError, isPending: isConcludePending, writeContract: writeConcludeMatch } = useWriteContract();
   const { isLoading: isConcludeConfirming, isSuccess: isConcludeConfirmed } = useWaitForTransactionReceipt({
     hash: concludeMatchHash,
+  });
+  const {
+    data: unjoinMatchHash,
+    error: unjoinMatchError,
+    isPending: isUnjoinPending,
+    writeContract: writeUnjoinMatch,
+  } = useWriteContract();
+  const { isLoading: isUnjoinConfirming, isSuccess: isUnjoinConfirmed } = useWaitForTransactionReceipt({
+    hash: unjoinMatchHash,
   });
 
   const { data: latestMatchIdData, refetch: refetchLatestMatchId } = useReadContract({
@@ -156,6 +166,18 @@ export default function MatchesPage({
     setConcludingMatchId(null);
     setMatchesError(concludeMatchError.message);
   }, [concludeMatchError]);
+
+  useEffect(() => {
+    if (!isUnjoinConfirmed) return;
+    setUnjoiningMatchId(null);
+    setMatchesReloadNonce((value) => value + 1);
+  }, [isUnjoinConfirmed]);
+
+  useEffect(() => {
+    if (!unjoinMatchError) return;
+    setUnjoiningMatchId(null);
+    setMatchesError(unjoinMatchError.message);
+  }, [unjoinMatchError]);
 
   useEffect(() => {
     if (!publicClient || !hyperDuelContractAddress || latestMatchIdData === undefined) {
@@ -345,6 +367,7 @@ export default function MatchesPage({
         playersCount < 2 &&
         match.playerB.toLowerCase() === zeroAddress;
       const canJoin = hasOpenSeat && !isJoined;
+      const canUnjoin = match.status === 0 && isJoined;
       const playersTooltip =
         playersCount === 2
           ? `Players: ${match.playerA} vs ${match.playerB}`
@@ -383,6 +406,8 @@ export default function MatchesPage({
       const canConclude = match.status === 1 && remainingSeconds <= 0n;
       const isConcluding =
         concludingMatchId === match.id && (isConcludePending || isConcludeConfirming);
+      const isUnjoining =
+        unjoiningMatchId === match.id && (isUnjoinPending || isUnjoinConfirming);
 
       return {
         id: `#${match.id.toString()}`,
@@ -403,11 +428,13 @@ export default function MatchesPage({
         winnerAddress: match.winner,
         isJoined,
         canJoin,
+        canUnjoin,
         canConclude,
         isConcluding,
+        isUnjoining,
       };
     });
-  }, [address, buyInTokenDecimals, buyInTokenSymbol, concludingMatchId, contractMatches, isConcludeConfirming, isConcludePending, matchFilter, nowTs, platformFeeBps, sortBy, sortDirection, tokenIndexMap]);
+  }, [address, buyInTokenDecimals, buyInTokenSymbol, concludingMatchId, contractMatches, isConcludeConfirming, isConcludePending, isUnjoinConfirming, isUnjoinPending, matchFilter, nowTs, platformFeeBps, sortBy, sortDirection, tokenIndexMap, unjoiningMatchId]);
 
   const handleConcludeMatch = (matchId: bigint) => {
     if (!hyperDuelContractAddress || isConcludePending || isConcludeConfirming) return;
@@ -416,6 +443,17 @@ export default function MatchesPage({
       address: hyperDuelContractAddress,
       abi: hyperDuelAbi,
       functionName: 'concludeMatch',
+      args: [matchId],
+    });
+  };
+
+  const handleUnjoinMatch = (matchId: bigint) => {
+    if (!hyperDuelContractAddress || isUnjoinPending || isUnjoinConfirming) return;
+    setUnjoiningMatchId(matchId);
+    writeUnjoinMatch({
+      address: hyperDuelContractAddress,
+      abi: hyperDuelAbi,
+      functionName: 'unjoinMatch',
       args: [matchId],
     });
   };
@@ -566,6 +604,7 @@ export default function MatchesPage({
                       hideAction={hideAction}
                       onConclude={() => handleConcludeMatch(match.matchId)}
                       onJoin={() => setSelectedMatchToJoin(match)}
+                      onUnjoin={() => handleUnjoinMatch(match.matchId)}
                     />
                   ))
                 )}

@@ -3,6 +3,7 @@ import { type Match } from '../types/match';
 export function MatchRow({
   match,
   onJoin,
+  onUnjoin,
   onConclude,
   gridTemplateColumns,
   hideCountdownAndWinner,
@@ -11,6 +12,7 @@ export function MatchRow({
 }: {
   match: Match;
   onJoin: () => void;
+  onUnjoin: () => void;
   onConclude: () => void;
   gridTemplateColumns: string;
   hideCountdownAndWinner: boolean;
@@ -20,15 +22,20 @@ export function MatchRow({
   const alreadyJoined = Boolean(match.isJoined);
   const canJoin = match.canJoin ?? (match.statusCode === 0 && !alreadyJoined);
   const canConclude = Boolean(match.canConclude);
+  const canUnjoin = match.canUnjoin ?? (match.statusCode === 0 && alreadyJoined && !canConclude);
   const actionLabel = canConclude
     ? (match.isConcluding ? 'Concluding...' : 'Conclude')
-    : alreadyJoined
-      ? 'Joined'
+    : canUnjoin
+      ? (match.isUnjoining ? 'Unjoining...' : 'Unjoin')
+      : alreadyJoined
+        ? 'Joined'
       : 'Join';
-  const actionOnClick = canConclude ? onConclude : onJoin;
-  const actionDisabled = canConclude ? Boolean(match.isConcluding) : !canJoin;
+  const actionOnClick = canConclude ? onConclude : canUnjoin ? onUnjoin : onJoin;
+  const actionDisabled = canConclude ? Boolean(match.isConcluding) : canUnjoin ? Boolean(match.isUnjoining) : !canJoin;
   const actionClassName = canConclude
     ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98] hover:bg-[#e3deff]'
+    : canUnjoin
+      ? 'border-[#b9b9b9] bg-[#f7f7f7] text-[#4f4f4f] hover:bg-[#ececec]'
     : canJoin
       ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98] hover:bg-[#e3deff]'
       : 'cursor-not-allowed border-[#c8c8c8] bg-[#f1f1f1] text-[#9a9a9a]';

@@ -307,9 +307,32 @@ html.dark [class*='border-[#9c9c9c]'] {
   border-color: #3b424b !important;
 }
 
+html.dark [class*='divide-[#d4d4d4]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#d3d3d3]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#d1d1d1]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#cfcfcf]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#c8c8c8]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#c2c2c2]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#c0c0c0]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#bdbdbd]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#bcbcbc]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#b9b9b9]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#b8b8b8]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#b4b4b4]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#ababab]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#a8a8a8]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#a3a3a3]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#9f9f9f]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#9d9d9d]'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-[#9c9c9c]'] > :not([hidden]) ~ :not([hidden]) {
+  --tw-divide-opacity: 1 !important;
+  border-color: rgb(59 66 75 / var(--tw-divide-opacity)) !important;
+}
+
 html.dark [class*='text-[#2b2b2b]'],
 html.dark [class*='text-[#2e2e2e]'],
 html.dark [class*='text-[#2f2f2f]'],
+html.dark [class*='text-[#363636]'],
 html.dark [class*='text-[#3b3b3b]'],
 html.dark [class*='text-[#3d3d3d]'],
 html.dark [class*='text-[#424242]'],

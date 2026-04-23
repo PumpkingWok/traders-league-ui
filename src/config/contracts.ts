@@ -27,8 +27,6 @@ export const tokenSymbolByLabel: Record<string, string> = {
   HYPE: 'HYPE',
 };
 
-export const preferredHyperDuelChainId = hyperliquidEvmChain.id;
-
 export const hyperDuelContractByChainId: Partial<Record<number, Address>> = {
   [hyperliquidEvmChain.id]: '0x99a93684f569026d397f65eff0807f5347add051',
   [hyperliquidTestnetChain.id]: '0xd26aD97bb86b58F2B12D2cc6E4f690B6cAB91F94',
@@ -47,5 +45,3 @@ export const tokenIndexByChainId: Partial<Record<number, Record<string, number>>
 };
 
 export const zeroAddress = '0x0000000000000000000000000000000000000000';
-
-export const swapHistoryLookbackBlocks = 50_000n;

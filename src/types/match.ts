@@ -22,6 +22,8 @@ export type Match = {
   winnerAddress?: Address;
   isJoined?: boolean;
   canJoin?: boolean;
+  canUnjoin?: boolean;
+  isUnjoining?: boolean;
   isReservedForYou?: boolean;
   canConclude?: boolean;
   isConcluding?: boolean;

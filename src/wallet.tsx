@@ -58,13 +58,14 @@ export const hyperliquidTestnetChain = defineChain({
 
 export const supportedChains = [hyperliquidEvmChain, hyperliquidTestnetChain] as const;
 
-const walletConnectProjectId =
-  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? 'REPLACE_WITH_YOUR_PROJECT_ID';
+const walletConnectProjectId = __WALLETCONNECT_PROJECT_ID__;
+const walletAppUrl =
+  typeof window === 'undefined' ? 'https://tradersleague.local' : window.location.origin;
 
 const config = getDefaultConfig({
   appName: 'Traders League',
   appDescription: 'Multichain virtual trading battles',
-  appUrl: 'https://tradersleague.local',
+  appUrl: walletAppUrl,
   chains: [...supportedChains],
   transports: {
     [hyperliquidEvmChain.id]: http(),

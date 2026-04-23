@@ -28,6 +28,7 @@ import HomePage from './pages/Home';
 import MatchesPage from './pages/Matches';
 import MyMatchesPage from './pages/MyMatches';
 import DashboardPage from './pages/Dashboard';
+import tradersLeagueLogoPng from './assets/traders-league-logo.png';
 import './ui.css';
 
 const navbarControlClassName = 'h-[30px]';
@@ -214,23 +215,36 @@ function Footer() {
     <footer className="mt-auto border-t border-[#9f9f9f] bg-[#ececec] text-[#2e2e2e]">
       <div className="h-[2px] w-full bg-[linear-gradient(90deg,#8f83ff_0%,#7ed8ff_50%,#8f83ff_100%)]" />
       <div className="border-b border-[#b4b4b4] bg-[#f2f2f2]">
-        <div className="w-full px-2 py-3 md:px-3">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div className="flex items-center md:pt-1">
-              <TradersLeagueLogo />
+        <div className="w-full px-2 py-1.5 md:px-3">
+          <div className="flex flex-col gap-2.5 md:flex-row md:items-start md:justify-start md:gap-10">
+            <div className="flex flex-col items-center gap-1 md:ml-4 md:pt-1 lg:ml-8">
+              <TradersLeagueLogo className="h-14 w-14 md:h-[72px] md:w-[72px]" fit="contain" />
+              <div className="font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4a4a4a] md:text-sm">
+                Traders League
+              </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 md:flex-1 md:px-6 lg:px-10">
+            <div className="grid gap-3 sm:grid-cols-2 md:ml-14 md:grid-cols-2 md:gap-7 md:px-2 md:pt-2 lg:ml-20 lg:gap-9">
               <div className="space-y-2">
                 <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#4a4a4a]">
                   Community
                 </div>
                 <div className="flex flex-col gap-2">
-                  <a href="" className={footerItemClass}>
+                  <a
+                    href="https://t.me/tradersleague"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={footerItemClass}
+                  >
                     <TelegramIcon className="h-3.5 w-3.5" />
                     Telegram
                   </a>
-                  <a href="" className={footerItemClass}>
+                  <a
+                    href="https://x.com/tradersleague"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={footerItemClass}
+                  >
                     <XIcon className="h-3.5 w-3.5" />
                     X
                   </a>
@@ -245,7 +259,7 @@ function Footer() {
                   <a
                     href="https://github.com/PumpkingWok/traders-league-ui"
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className={footerItemClass}
                   >
                     <GitHubIcon className="h-3.5 w-3.5" />
@@ -254,7 +268,7 @@ function Footer() {
                   <a
                     href="https://github.com/PumpkingWok/traders-league"
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className={footerItemClass}
                   >
                     <GitHubIcon className="h-3.5 w-3.5" />
@@ -264,9 +278,6 @@ function Footer() {
               </div>
             </div>
 
-            <div className="flex items-center font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#666] md:justify-end md:pt-1">
-              Bring Human interactions onchain.
-            </div>
           </div>
         </div>
       </div>
@@ -274,41 +285,20 @@ function Footer() {
   );
 }
 
-function TradersLeagueLogo({ className }: { className?: string }) {
-  return (
-    <svg
-      aria-label="Traders League logo"
-      width="152"
-      height="38"
-      viewBox="0 0 304 76"
-      className={className ?? 'h-8 w-[152px]'}
-    >
-      <defs>
-        <linearGradient id="tradersLeagueLogoFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#b8b1ff" />
-          <stop offset="55%" stopColor="#8f83ff" />
-          <stop offset="100%" stopColor="#7ed8ff" />
-        </linearGradient>
-      </defs>
+function TradersLeagueLogo({ className, fit = 'cover' }: { className?: string; fit?: 'cover' | 'contain' }) {
+  const frameClassName = className ?? 'h-8 w-[152px]';
+  const frameModeClassName = fit === 'cover' ? `${frameClassName} overflow-hidden` : frameClassName;
+  const imageModeClassName =
+    fit === 'cover' ? 'h-full w-full scale-[1.12] object-cover' : 'h-full w-full object-contain';
 
-      <g>
-        <text
-          x="152"
-          y="51"
-          textAnchor="middle"
-          fontFamily="Impact, Haettenschweiler, 'Arial Black', sans-serif"
-          fontSize="38"
-          fontWeight="900"
-          letterSpacing="1.2"
-          fill="url(#tradersLeagueLogoFill)"
-          stroke="#d9e8ff"
-          strokeWidth="4.5"
-          paintOrder="stroke"
-        >
-          TRADERS LEAGUE
-        </text>
-      </g>
-    </svg>
+  return (
+    <div className={frameModeClassName}>
+      <img
+        src={tradersLeagueLogoPng}
+        alt="Traders League logo"
+        className={imageModeClassName}
+      />
+    </div>
   );
 }
 
@@ -346,7 +336,7 @@ function Navbar({
   onThemeModeChange: (themeMode: ThemeMode) => void;
 }) {
   const topNavLinkClassName = ({ isActive }: { isActive: boolean }) =>
-    `px-4 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] ${
+    `inline-flex h-full items-center px-4 py-1.5 font-mono text-sm font-black uppercase tracking-[0.08em] ${
       isActive ? 'bg-[#5a53b6] text-[#f5f5ff]' : 'bg-transparent text-[#4a4a4a] hover:bg-[#dfdfdf]'
     }`;
 
@@ -358,10 +348,10 @@ function Navbar({
   return (
     <header className="sticky top-0 z-20 border-b border-[#9f9f9f] bg-[#ececec] text-[#2e2e2e]">
       <div className="border-b border-[#a3a3a3]">
-        <div className="flex w-full items-center justify-between gap-4 px-2 md:px-3">
+        <div className="flex w-full items-stretch justify-between gap-4 px-2 md:h-[46px] md:px-3">
           <div className="flex items-stretch">
-            <div className="flex items-center border-r border-[#9c9c9c] pr-4">
-              <TradersLeagueLogo className="h-9 w-[170px]" />
+            <div className="flex h-full items-center border-r border-[#9c9c9c] pr-4">
+              <TradersLeagueLogo className="h-8 w-8 md:h-9 md:w-9" fit="contain" />
             </div>
             <div className="hidden items-stretch md:flex">
               <NavLink to="/" className={topNavLinkClassName}>
@@ -380,7 +370,7 @@ function Navbar({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex h-full items-center gap-2">
             <div className="hidden md:block">
               <NetworkSelector />
             </div>
@@ -390,7 +380,7 @@ function Navbar({
         </div>
       </div>
 
-      <div className="border-b border-[#b4b4b4] bg-[#f2f2f2]">
+      <div className="border-b border-[#b4b4b4] bg-[#f2f2f2] md:hidden">
         <div className="flex w-full items-center justify-between gap-4 px-2 py-1 md:px-3">
           <div className="flex items-center gap-2 md:hidden">
             <NavLink to="/" className={bottomNavLinkClassName}>
@@ -407,20 +397,24 @@ function Navbar({
             </NavLink>
             <TournamentNavTeaser mode="bottom" />
           </div>
-          <div className="hidden items-center gap-5 md:flex">
-            {buyInBalanceLabel ? (
-              <div className="font-mono text-[12px] font-black uppercase tracking-[0.08em] text-[#686868]">
-                Balance: <span className="text-[#2f2f2f]">{buyInBalanceLabel}</span>
-              </div>
-            ) : null}
-          </div>
         </div>
       </div>
+
+      {buyInBalanceLabel ? (
+        <div className="hidden border-b border-[#b4b4b4] bg-[#f2f2f2] md:block">
+          <div className="flex w-full items-center justify-end px-3 py-1">
+            <div className="font-mono text-[12px] font-black uppercase tracking-[0.08em] text-[#686868]">
+              Balance: <span className="text-[#2f2f2f]">{buyInBalanceLabel}</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="h-[2px] w-full bg-[linear-gradient(90deg,#8f83ff_0%,#7ed8ff_50%,#8f83ff_100%)]" />
 
       {buyInBalanceLabel ? (
         <div className="border-b border-[#a3a3a3] px-4 py-2 md:hidden">
-          <div className="font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#4f4f4f]">
+          <div className="text-right font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#4f4f4f]">
             Balance: <span className="text-[#2f2f2f]">{buyInBalanceLabel}</span>
           </div>
         </div>
@@ -432,7 +426,7 @@ function Navbar({
 function TournamentNavTeaser({ mode }: { mode: 'top' | 'bottom' }) {
   const teaserClassName =
     mode === 'top'
-      ? 'px-4 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4a4a4a] hover:bg-[#dfdfdf]'
+      ? 'inline-flex h-full items-center px-4 py-1.5 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4a4a4a] hover:bg-[#dfdfdf]'
       : 'px-2 py-2 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#555] hover:text-[#1f1f1f]';
 
   const tooltipClassName =
