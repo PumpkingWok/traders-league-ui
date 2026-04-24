@@ -29,6 +29,7 @@ import MatchesPage from './pages/Matches';
 import MyMatchesPage from './pages/MyMatches';
 import DashboardPage from './pages/Dashboard';
 import tradersLeagueLogoPng from './assets/traders-league-logo.png';
+import { addBalanceRefreshListener } from './utils/appEvents';
 import './ui.css';
 
 const navbarControlClassName = 'h-[30px]';
@@ -114,7 +115,7 @@ export default function App() {
     },
   });
 
-  const { data: appBuyInTokenData } = useReadContracts({
+  const { data: appBuyInTokenData, refetch: refetchAppBuyInTokenData } = useReadContracts({
     contracts:
       appBuyInTokenAddress && address
         ? [
@@ -140,6 +141,17 @@ export default function App() {
       enabled: Boolean(appBuyInTokenAddress && address),
     },
   });
+  useEffect(() => {
+    if (!isConnected || !address || !appBuyInTokenAddress) return;
+    void refetchAppBuyInTokenData();
+  }, [appBuyInTokenAddress, address, isConnected, refetchAppBuyInTokenData]);
+
+  useEffect(() => {
+    if (!isConnected || !address || !appBuyInTokenAddress) return;
+    return addBalanceRefreshListener(() => {
+      void refetchAppBuyInTokenData();
+    });
+  }, [appBuyInTokenAddress, address, isConnected, refetchAppBuyInTokenData]);
 
   const appBuyInTokenSymbol = (appBuyInTokenData?.[0]?.result as string | undefined) ?? 'TOKEN';
   const appBuyInTokenDecimals = Number((appBuyInTokenData?.[1]?.result as number | undefined) ?? 18);
@@ -177,7 +189,7 @@ export default function App() {
               }
             />
             <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/my-matches" element={<MyMatchesPage />} />
+            <Route path="/my-matches" element={<MyMatchesPage refreshNonce={matchesRefreshNonce} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

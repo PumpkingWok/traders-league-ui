@@ -8,6 +8,7 @@ import {
   zeroAddress,
 } from '../config/contracts';
 import { formatSpotPriceLabel } from '../utils/format';
+import { emitBalanceRefresh } from '../utils/appEvents';
 import { type MatchCreationMode } from '../types/match';
 
 const buyInRange = {
@@ -42,6 +43,19 @@ function isUserRejectedError(error: unknown): boolean {
     text.includes('rejected the request') ||
     text.includes('request rejected')
   );
+}
+
+function readBigIntLike(value: unknown): bigint {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === 'string' && value.length > 0) {
+    try {
+      return BigInt(value);
+    } catch {
+      return 0n;
+    }
+  }
+  return 0n;
 }
 
 export function CreateMatchModal({
@@ -86,6 +100,7 @@ export function CreateMatchModal({
   const { isConnected, address } = useAccount();
   const [fallbackSpotByAssetLabel, setFallbackSpotByAssetLabel] = useState<Record<string, bigint | null>>({});
   const [fallbackDecimalsByAssetLabel, setFallbackDecimalsByAssetLabel] = useState<Record<string, number | null>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
   const {
     data: createMatchHash,
     error: createMatchError,
@@ -217,8 +232,8 @@ export function CreateMatchModal({
       });
 
       if (missingAssets.length === 0) {
-        setFallbackSpotByAssetLabel({});
-        setFallbackDecimalsByAssetLabel({});
+        setFallbackSpotByAssetLabel((current) => (Object.keys(current).length === 0 ? current : {}));
+        setFallbackDecimalsByAssetLabel((current) => (Object.keys(current).length === 0 ? current : {}));
         return;
       }
 
@@ -309,6 +324,7 @@ export function CreateMatchModal({
 
   useEffect(() => {
     if (isCreateConfirmed) {
+      emitBalanceRefresh();
       onCreated();
       onClose();
     }
@@ -325,7 +341,7 @@ export function CreateMatchModal({
   const isEmptyMatch = matchCreationMode === 'empty';
   const hasAssetSelection = tokensAllowed.length > 0;
   const hasUnknownAssetSelection = tokensAllowed.length !== selectedAssets.length;
-  const allowanceAmount = allowanceData ? BigInt(allowanceData as bigint) : 0n;
+  const allowanceAmount = readBigIntLike(allowanceData);
   const hasEnoughAllowance = !requiresAllowance || allowanceAmount >= buyInAmount;
   const canApprove =
     isConnected &&
@@ -346,9 +362,37 @@ export function CreateMatchModal({
     hasEnoughAllowance &&
     (!isReservedMatch || reservedAddressIsValid);
 
+  const approveErrorText =
+    actionError ??
+    (approveError
+      ? isUserRejectedError(approveError)
+        ? 'Approve transaction cancelled in wallet.'
+        : getErrorText(approveError) || 'Approve transaction failed.'
+      : null);
+
+  const createErrorText = createMatchError
+    ? isUserRejectedError(createMatchError)
+      ? 'Create match transaction cancelled in wallet.'
+      : getErrorText(createMatchError) || 'Create match transaction failed.'
+    : null;
+
   const handleApproveToken = () => {
-    if (!canApprove || !buyInTokenAddress || !hyperDuelContractAddress) return;
+    setActionError(null);
+    if (!canApprove || !buyInTokenAddress || !hyperDuelContractAddress) {
+      if (!isConnected) {
+        setActionError('Connect a wallet before approving token.');
+      } else if (!buyInTokenAddress) {
+        setActionError('Buy-in token is still loading, retry in a moment.');
+      } else if (!hyperDuelContractAddress) {
+        setActionError('No HyperDuel contract configured for this network.');
+      } else if (hasEnoughAllowance) {
+        setActionError('Allowance already sufficient for the selected buy-in.');
+      }
+      return;
+    }
+
     writeApprove({
+      chainId,
       address: buyInTokenAddress as Address,
       abi: erc20AllowanceAbi,
       functionName: 'approve',
@@ -357,6 +401,7 @@ export function CreateMatchModal({
   };
 
   const handleConfirmMatch = () => {
+    setActionError(null);
     if (!canSubmit || !hyperDuelContractAddress || !address) return;
 
     const playerA = matchCreationMode === 'empty' ? zeroAddress : (address as Address);
@@ -589,6 +634,8 @@ export function CreateMatchModal({
               {createMatchHash ? <div className="mt-2 break-all text-[#447056]">Match Tx: {createMatchHash}</div> : null}
               {isConfirmingApprove ? <div className="mt-2 text-[#6a6194]">Waiting for approve confirmation...</div> : null}
               {isConfirmingCreate ? <div className="mt-2 text-[#6a6194]">Waiting for match confirmation...</div> : null}
+              {approveErrorText ? <div className="mt-2 normal-case tracking-normal text-[#9a4f4f]">{approveErrorText}</div> : null}
+              {createErrorText ? <div className="mt-2 normal-case tracking-normal text-[#9a4f4f]">{createErrorText}</div> : null}
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">

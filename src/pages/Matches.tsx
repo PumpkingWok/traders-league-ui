@@ -4,8 +4,10 @@ import { useAccount, useChainId, usePublicClient, useReadContract, useReadContra
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenIndexByChainId, zeroAddress } from '../config/contracts';
 import { compactNumber, formatAddress, formatDurationFromSeconds } from '../utils/format';
+import { emitBalanceRefresh } from '../utils/appEvents';
 import { MatchRow } from '../components/MatchRow';
 import { JoinMatchModal } from '../components/JoinMatchModal';
+import { ResolveMatchModal } from '../components/ResolveMatchModal';
 import { type Match } from '../types/match';
 
 function formatMatchCountdown(remainingSeconds: bigint): string {
@@ -26,6 +28,156 @@ function formatMatchCountdown(remainingSeconds: bigint): string {
 }
 
 const platformFeeBase = 10_000n;
+const subgraphMatchesUrl = (__GOLDSKY_SUBGRAPH_URL__ ?? '').trim();
+
+type ContractMatchRecord = {
+  id: bigint;
+  playerA: Address;
+  playerB: Address;
+  winner: Address;
+  currentWinner: Address;
+  buyIn: bigint;
+  duration: bigint;
+  endTs: bigint;
+  status: number;
+  tokensAllowed: number[];
+};
+
+const readBigInt = (value: unknown): bigint | null => {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === 'string' && value.length > 0) {
+    try {
+      return BigInt(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const readNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'bigint') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    if (value.startsWith('0x')) {
+      const parsedHex = Number.parseInt(value, 16);
+      return Number.isFinite(parsedHex) ? parsedHex : null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+  }
+  return null;
+};
+
+const readAddress = (value: unknown): Address => {
+  if (typeof value === 'string' && value.startsWith('0x') && value.length === 42) {
+    return value as Address;
+  }
+  return zeroAddress;
+};
+
+const normalizeSubgraphTokenIds = (rawValue: unknown): number[] => {
+  if (!Array.isArray(rawValue)) return [];
+  return rawValue
+    .map((tokenId) => readNumber(tokenId))
+    .filter((tokenId): tokenId is number => tokenId !== null);
+};
+
+const normalizeSubgraphMatchRow = (raw: Record<string, unknown>): ContractMatchRecord | null => {
+  const id = readBigInt(raw.matchId ?? raw.match_id ?? raw.id);
+  if (id === null || id <= 0n) return null;
+
+  const playerA = readAddress(raw.playerA ?? raw.player_a);
+  const playerB = readAddress(raw.playerB ?? raw.player_b);
+  const winner = readAddress(raw.winner);
+  const buyIn = readBigInt(raw.buyIn ?? raw.buy_in) ?? 0n;
+  const duration = readBigInt(raw.duration) ?? 0n;
+  const endTs = readBigInt(raw.endTs ?? raw.end_ts ?? raw.endTime ?? raw.end_time) ?? 0n;
+  const status = readNumber(raw.status ?? raw.statusCode ?? raw.status_code) ?? 0;
+  const tokensAllowed = normalizeSubgraphTokenIds(raw.tokensAllowed ?? raw.tokens_allowed);
+
+  const isEmptyMatch =
+    playerA.toLowerCase() === zeroAddress &&
+    playerB.toLowerCase() === zeroAddress &&
+    winner.toLowerCase() === zeroAddress &&
+    buyIn === 0n &&
+    duration === 0n &&
+    endTs === 0n &&
+    status === 0 &&
+    tokensAllowed.length === 0;
+  if (isEmptyMatch) return null;
+
+  return {
+    id,
+    playerA,
+    playerB,
+    winner,
+    currentWinner: winner,
+    buyIn,
+    duration,
+    endTs,
+    status,
+    tokensAllowed,
+  };
+};
+
+const fetchMatchesFromSubgraph = async ({
+  endpoint,
+  limit,
+}: {
+  endpoint: string;
+  limit: number;
+}): Promise<ContractMatchRecord[] | null> => {
+  const safeLimit = Math.max(1, limit);
+  const attempts: Array<{ rootFieldName: string; query: string }> = [
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}, orderBy: id, orderDirection: desc) { id matchId playerA playerB winner buyIn duration endTs status tokensAllowed } }`,
+    },
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}, orderBy: id, orderDirection: desc) { id match_id player_a player_b winner buy_in duration end_ts status tokens_allowed } }`,
+    },
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}, orderBy: id, orderDirection: desc) { id matchId playerA playerB winner buyIn duration endTs status } }`,
+    },
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}) { id matchId playerA playerB winner buyIn duration endTs status tokensAllowed } }`,
+    },
+  ];
+
+  for (const attempt of attempts) {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: attempt.query }),
+    });
+    if (!response.ok) continue;
+
+    const json = (await response.json()) as { data?: Record<string, unknown>; errors?: Array<{ message?: string }> };
+    if (json.errors?.length) continue;
+    const rows = json.data?.[attempt.rootFieldName];
+    if (!Array.isArray(rows)) continue;
+
+    const normalized = rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        return normalizeSubgraphMatchRow(row as Record<string, unknown>);
+      })
+      .filter((row): row is ContractMatchRecord => row !== null);
+
+    normalized.sort((a, b) => Number(b.id - a.id));
+    return normalized;
+  }
+
+  return null;
+};
 
 export default function MatchesPage({
   onOpenCreateMatch,
@@ -39,23 +191,17 @@ export default function MatchesPage({
   const publicClient = usePublicClient();
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
   const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};
-  const [contractMatches, setContractMatches] = useState<
-    Array<{
-      id: bigint;
-      playerA: Address;
-      playerB: Address;
-      winner: Address;
-      currentWinner: Address;
-      buyIn: bigint;
-      duration: bigint;
-      endTs: bigint;
-      status: number;
-      tokensAllowed: number[];
-    }>
-  >([]);
+  const [contractMatches, setContractMatches] = useState<ContractMatchRecord[]>([]);
   const [isLoadingMatches, setIsLoadingMatches] = useState(false);
   const [matchesError, setMatchesError] = useState<string | null>(null);
   const [selectedMatchToJoin, setSelectedMatchToJoin] = useState<Match | null>(null);
+  const [selectedMatchToResolve, setSelectedMatchToResolve] = useState<{
+    matchId: bigint;
+    playerA: Address;
+    playerB: Address;
+    predictedWinner: Address;
+    buyIn: bigint;
+  } | null>(null);
 
   const [matchFilter, setMatchFilter] = useState<'to-start' | 'current' | 'finish' | 'all'>('to-start');
   const [sortBy, setSortBy] = useState<'duration' | 'buyIn'>('duration');
@@ -67,7 +213,7 @@ export default function MatchesPage({
   const [isPrizeInfoOpen, setIsPrizeInfoOpen] = useState(false);
   const hideCountdownAndWinner = matchFilter === 'to-start';
   const hideStatus = matchFilter === 'finish' || matchFilter === 'to-start' || matchFilter === 'current';
-  const hideAction = matchFilter === 'finish' || matchFilter === 'current';
+  const hideAction = matchFilter === 'finish' || matchFilter === 'current' || matchFilter === 'all';
   const visibleColumns =
     6 + (hideCountdownAndWinner ? 0 : 2) + (hideStatus ? 0 : 1) + (hideAction ? 0 : 1);
   const matchTableGridTemplate = `repeat(${visibleColumns}, minmax(0, 1fr))`;
@@ -159,6 +305,7 @@ export default function MatchesPage({
     if (!isConcludeConfirmed) return;
     setConcludingMatchId(null);
     setMatchesReloadNonce((value) => value + 1);
+    emitBalanceRefresh();
   }, [isConcludeConfirmed]);
 
   useEffect(() => {
@@ -171,6 +318,7 @@ export default function MatchesPage({
     if (!isUnjoinConfirmed) return;
     setUnjoiningMatchId(null);
     setMatchesReloadNonce((value) => value + 1);
+    emitBalanceRefresh();
   }, [isUnjoinConfirmed]);
 
   useEffect(() => {
@@ -196,94 +344,125 @@ export default function MatchesPage({
       setMatchesError(null);
 
       try {
-        const matchIds = Array.from({ length: latestMatchId }, (_, index) => BigInt(index + 1));
-        const records = (
-          await Promise.all(
-            matchIds.map(async (id) => {
-              try {
-                const match = (await publicClient.readContract({
-                  address: hyperDuelContractAddress,
-                  abi: hyperDuelAbi,
-                  functionName: 'matches',
-                  args: [id],
-                })) as readonly [Address, Address, Address, bigint, bigint, bigint, number];
+        const hydrateCurrentWinners = async (records: ContractMatchRecord[]): Promise<ContractMatchRecord[]> => {
+          return Promise.all(
+            records.map(async (record) => {
+              if (
+                record.status !== 1 ||
+                record.playerA.toLowerCase() === zeroAddress ||
+                record.playerB.toLowerCase() === zeroAddress
+              ) {
+                return record;
+              }
 
-                let tokensAllowed: readonly number[] | readonly bigint[] = [];
-                try {
-                  tokensAllowed = (await publicClient.readContract({
+              try {
+                const [playerATotalUsd, playerBTotalUsd] = (await Promise.all([
+                  publicClient.readContract({
                     address: hyperDuelContractAddress,
                     abi: hyperDuelAbi,
-                    functionName: 'getMatchTokensAllowed',
-                    args: [id],
-                  })) as readonly number[] | readonly bigint[];
-                } catch {
-                  tokensAllowed = [];
-                }
+                    functionName: 'getPlayerTotalUsd',
+                    args: [record.id, record.playerA],
+                  }),
+                  publicClient.readContract({
+                    address: hyperDuelContractAddress,
+                    abi: hyperDuelAbi,
+                    functionName: 'getPlayerTotalUsd',
+                    args: [record.id, record.playerB],
+                  }),
+                ])) as [bigint, bigint];
 
-                let currentWinner = match[2];
-                if (
-                  Number(match[6]) === 1 &&
-                  match[0].toLowerCase() !== zeroAddress &&
-                  match[1].toLowerCase() !== zeroAddress
-                ) {
-                  try {
-                    const [playerATotalUsd, playerBTotalUsd] = (await Promise.all([
-                      publicClient.readContract({
-                        address: hyperDuelContractAddress,
-                        abi: hyperDuelAbi,
-                        functionName: 'getPlayerTotalUsd',
-                        args: [id, match[0]],
-                      }),
-                      publicClient.readContract({
-                        address: hyperDuelContractAddress,
-                        abi: hyperDuelAbi,
-                        functionName: 'getPlayerTotalUsd',
-                        args: [id, match[1]],
-                      }),
-                    ])) as [bigint, bigint];
-
-                    currentWinner =
-                      playerATotalUsd === playerBTotalUsd
-                        ? (zeroAddress as Address)
-                        : playerATotalUsd > playerBTotalUsd
-                          ? match[0]
-                          : match[1];
-                  } catch {
-                    currentWinner = match[2];
-                  }
-                }
-
-                const normalizedTokensAllowed = tokensAllowed.map((tokenId) => Number(tokenId));
-                const isEmptyMatch =
-                  match[0].toLowerCase() === zeroAddress &&
-                  match[1].toLowerCase() === zeroAddress &&
-                  match[2].toLowerCase() === zeroAddress &&
-                  match[3] === 0n &&
-                  match[4] === 0n &&
-                  match[5] === 0n &&
-                  Number(match[6]) === 0 &&
-                  normalizedTokensAllowed.length === 0;
-
-                if (isEmptyMatch) return null;
+                const currentWinner =
+                  playerATotalUsd === playerBTotalUsd
+                    ? (zeroAddress as Address)
+                    : playerATotalUsd > playerBTotalUsd
+                      ? record.playerA
+                      : record.playerB;
 
                 return {
-                  id,
-                  playerA: match[0],
-                  playerB: match[1],
-                  winner: match[2],
+                  ...record,
                   currentWinner,
-                  buyIn: match[3],
-                  duration: match[4],
-                  endTs: match[5],
-                  status: Number(match[6]),
-                  tokensAllowed: normalizedTokensAllowed,
                 };
               } catch {
-                return null;
+                return record;
               }
             }),
-          )
-        ).filter((match): match is (typeof contractMatches)[number] => match !== null);
+          );
+        };
+
+        const fetchMatchesFromContract = async (): Promise<ContractMatchRecord[]> => {
+          const matchIds = Array.from({ length: latestMatchId }, (_, index) => BigInt(index + 1));
+          const records = (
+            await Promise.all(
+              matchIds.map(async (id) => {
+                try {
+                  const match = (await publicClient.readContract({
+                    address: hyperDuelContractAddress,
+                    abi: hyperDuelAbi,
+                    functionName: 'matches',
+                    args: [id],
+                  })) as readonly [Address, Address, Address, bigint, bigint, bigint, number];
+
+                  let tokensAllowed: readonly number[] | readonly bigint[] = [];
+                  try {
+                    tokensAllowed = (await publicClient.readContract({
+                      address: hyperDuelContractAddress,
+                      abi: hyperDuelAbi,
+                      functionName: 'getMatchTokensAllowed',
+                      args: [id],
+                    })) as readonly number[] | readonly bigint[];
+                  } catch {
+                    tokensAllowed = [];
+                  }
+
+                  const normalizedTokensAllowed = tokensAllowed.map((tokenId) => Number(tokenId));
+                  const isEmptyMatch =
+                    match[0].toLowerCase() === zeroAddress &&
+                    match[1].toLowerCase() === zeroAddress &&
+                    match[2].toLowerCase() === zeroAddress &&
+                    match[3] === 0n &&
+                    match[4] === 0n &&
+                    match[5] === 0n &&
+                    Number(match[6]) === 0 &&
+                    normalizedTokensAllowed.length === 0;
+
+                  if (isEmptyMatch) return null;
+
+                  return {
+                    id,
+                    playerA: match[0],
+                    playerB: match[1],
+                    winner: match[2],
+                    currentWinner: match[2],
+                    buyIn: match[3],
+                    duration: match[4],
+                    endTs: match[5],
+                    status: Number(match[6]),
+                    tokensAllowed: normalizedTokensAllowed,
+                  };
+                } catch {
+                  return null;
+                }
+              }),
+            )
+          ).filter((match): match is ContractMatchRecord => match !== null);
+
+          return hydrateCurrentWinners(records);
+        };
+
+        let records: ContractMatchRecord[] | null = null;
+        if (subgraphMatchesUrl) {
+          const subgraphRecords = await fetchMatchesFromSubgraph({
+            endpoint: subgraphMatchesUrl,
+            limit: latestMatchId,
+          });
+          if (subgraphRecords) {
+            records = await hydrateCurrentWinners(subgraphRecords);
+          }
+        }
+
+        if (!records) {
+          records = await fetchMatchesFromContract();
+        }
 
         if (!cancelled) {
           setContractMatches(records);
@@ -426,6 +605,7 @@ export default function MatchesPage({
         playerAAddress: match.playerA,
         playerBAddress: match.playerB,
         winnerAddress: match.winner,
+        currentWinnerAddress: match.currentWinner,
         isJoined,
         canJoin,
         canUnjoin,
@@ -445,6 +625,23 @@ export default function MatchesPage({
       functionName: 'concludeMatch',
       args: [matchId],
     });
+  };
+
+  const openResolveModal = (match: (typeof displayMatches)[number]) => {
+    setSelectedMatchToResolve({
+      matchId: match.matchId,
+      playerA: match.playerAAddress,
+      playerB: match.playerBAddress,
+      predictedWinner: match.currentWinnerAddress,
+      buyIn: match.buyInRaw,
+    });
+  };
+
+  const confirmResolveMatch = () => {
+    if (!selectedMatchToResolve) return;
+    const matchId = selectedMatchToResolve.matchId;
+    setSelectedMatchToResolve(null);
+    handleConcludeMatch(matchId);
   };
 
   const handleUnjoinMatch = (matchId: bigint) => {
@@ -581,7 +778,7 @@ export default function MatchesPage({
               </div>
 
               <div className="divide-y divide-[#d3d3d3]">
-                {isLoadingMatches ? (
+                {isLoadingMatches && displayMatches.length === 0 ? (
                   <div className="px-4 py-6 font-mono text-sm font-black uppercase tracking-[0.08em] text-[#5a5a5a]">
                     Loading matches from contract...
                   </div>
@@ -602,7 +799,7 @@ export default function MatchesPage({
                       hideCountdownAndWinner={hideCountdownAndWinner}
                       hideStatus={hideStatus}
                       hideAction={hideAction}
-                      onConclude={() => handleConcludeMatch(match.matchId)}
+                      onConclude={() => openResolveModal(match)}
                       onJoin={() => setSelectedMatchToJoin(match)}
                       onUnjoin={() => handleUnjoinMatch(match.matchId)}
                     />
@@ -621,8 +818,37 @@ export default function MatchesPage({
         buyInTokenSymbol={buyInTokenSymbol}
         buyInTokenDecimals={buyInTokenDecimals}
         hyperDuelContractAddress={hyperDuelContractAddress}
-        onJoined={() => setMatchesReloadNonce((value) => value + 1)}
+        onJoined={(joinedMatchId) => {
+          setContractMatches((current) =>
+            current.map((match) => {
+              if (match.id !== joinedMatchId) return match;
+              const fallbackEndTs = BigInt(Math.floor(Date.now() / 1000)) + match.duration;
+              return {
+                ...match,
+                playerB: (address ?? match.playerB) as Address,
+                status: 1,
+                endTs: match.endTs > 0n ? match.endTs : fallbackEndTs,
+              };
+            }),
+          );
+          setMatchesReloadNonce((value) => value + 1);
+        }}
         onClose={() => setSelectedMatchToJoin(null)}
+      />
+
+      <ResolveMatchModal
+        isOpen={Boolean(selectedMatchToResolve)}
+        matchId={selectedMatchToResolve?.matchId ?? 0n}
+        playerA={selectedMatchToResolve?.playerA ?? zeroAddress}
+        playerB={selectedMatchToResolve?.playerB ?? zeroAddress}
+        predictedWinner={selectedMatchToResolve?.predictedWinner ?? zeroAddress}
+        buyIn={selectedMatchToResolve?.buyIn ?? 0n}
+        buyInTokenSymbol={buyInTokenSymbol}
+        buyInTokenDecimals={buyInTokenDecimals}
+        platformFeeBps={platformFeeBps}
+        isConfirming={Boolean(isConcludePending || isConcludeConfirming)}
+        onConfirm={confirmResolveMatch}
+        onClose={() => setSelectedMatchToResolve(null)}
       />
     </section>
   );

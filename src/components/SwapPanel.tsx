@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnits, parseUnits, type Address } from 'viem';
 import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { hyperDuelAbi } from '../config/abis';
@@ -7,11 +7,10 @@ import {
   tokenSymbolByLabel,
   zeroAddress,
 } from '../config/contracts';
-import { compactNumber, formatAddress } from '../utils/format';
+import { compactNumber, formatAddress, formatUnixSecondsUtc } from '../utils/format';
 
 const virtualAssetDecimals = 18;
 const platformFeeBase = 10_000n;
-const tokenPriceDecimals = 4;
 const usdVirtualPriceScale = 10_000n;
 const subgraphSwapHistoryUrl = (__GOLDSKY_SUBGRAPH_URL__ ?? '').trim();
 const maxSubgraphSwapRows = 300;
@@ -27,6 +26,7 @@ type SwapDraftLeg = {
 type SwapHistoryRow = {
   transactionHash: `0x${string}` | null;
   blockNumber: bigint;
+  blockTimestamp: bigint | null;
   logIndex: number;
   tokenIn: number;
   tokenOut: number;
@@ -85,6 +85,7 @@ const normalizeSubgraphSwapRow = (raw: Record<string, unknown>): SwapHistoryRow 
   return {
     transactionHash: (raw.transactionHash ?? raw.transactionHash_ ?? raw.transaction_hash ?? raw.txHash ?? null) as `0x${string}` | null,
     blockNumber: readBigInt(raw.blockNumber ?? raw.block_number) ?? 0n,
+    blockTimestamp: readBigInt(raw.blockTimestamp ?? raw.block_timestamp ?? raw.blockTime ?? raw.block_time),
     logIndex: readNumber(raw.logIndex ?? raw.log_index) ?? 0,
     tokenIn,
     tokenOut,
@@ -180,6 +181,7 @@ export function SwapPanel({
   disableSwap = false,
   duration,
   endTs,
+  onSwapConfirmed,
 }: {
   matchId: bigint;
   playerA: Address;
@@ -194,6 +196,7 @@ export function SwapPanel({
   disableSwap?: boolean;
   duration: bigint;
   endTs: bigint;
+  onSwapConfirmed?: () => void;
 }) {
   const { isConnected, address } = useAccount();
   const chainId = useChainId();
@@ -218,6 +221,7 @@ export function SwapPanel({
   const [swapHistoryRows, setSwapHistoryRows] = useState<SwapHistoryRow[]>([]);
   const [isLoadingSwapHistory, setIsLoadingSwapHistory] = useState(false);
   const [swapHistoryError, setSwapHistoryError] = useState<string | null>(null);
+  const handledConfirmedSwapHashRef = useRef<`0x${string}` | undefined>(undefined);
 
   const {
     data: swapHash,
@@ -245,6 +249,21 @@ export function SwapPanel({
             chainId,
             abi: hyperDuelAbi,
             functionName: 'tokenPx',
+            args: [tokenId],
+          }))
+        : [],
+    query: {
+      enabled: Boolean(hyperDuelContractAddress && tokensAllowed.length > 0),
+    },
+  });
+  const { data: tokenPriceDecimalsData } = useReadContracts({
+    contracts:
+      hyperDuelContractAddress && tokensAllowed.length > 0
+        ? tokensAllowed.map((tokenId) => ({
+            address: hyperDuelContractAddress,
+            chainId,
+            abi: hyperDuelAbi,
+            functionName: 'tradingTokens',
             args: [tokenId],
           }))
         : [],
@@ -280,6 +299,24 @@ export function SwapPanel({
     });
     return map;
   }, [tokenPricesData, tokensAllowed]);
+  const tokenPriceScaleById = useMemo(() => {
+    const map: Record<number, bigint> = { 0: usdVirtualPriceScale };
+    tokensAllowed.forEach((tokenId, index) => {
+      const rawDecimals = tokenPriceDecimalsData?.[index]?.result;
+      const decimals =
+        typeof rawDecimals === 'number' && Number.isFinite(rawDecimals)
+          ? rawDecimals
+          : typeof rawDecimals === 'bigint'
+            ? Number(rawDecimals)
+            : null;
+      if (decimals !== null && decimals >= 0) {
+        map[tokenId] = 10n ** BigInt(decimals);
+      } else {
+        map[tokenId] = usdVirtualPriceScale;
+      }
+    });
+    return map;
+  }, [tokenPriceDecimalsData, tokensAllowed]);
   const virtualBalanceByTokenId = useMemo(() => {
     return selectableTokens.reduce<Record<number, bigint>>((accumulator, tokenId, index) => {
       const result = virtualBalancesData?.[index]?.result;
@@ -361,14 +398,45 @@ export function SwapPanel({
       if (!fromSubgraph) {
         throw new Error('Could not fetch swap history from Goldsky subgraph.');
       }
-      setSwapHistoryRows(fromSubgraph);
+      const rowsWithTimestamp = [...fromSubgraph];
+      if (publicClient) {
+        const unresolvedBlockNumbers = Array.from(
+          new Set(
+            rowsWithTimestamp
+              .filter((row) => row.blockTimestamp === null && row.blockNumber > 0n)
+              .map((row) => row.blockNumber.toString()),
+          ),
+        );
+        if (unresolvedBlockNumbers.length > 0) {
+          const blockTimestampByNumber = new Map<string, bigint | null>();
+          await Promise.all(
+            unresolvedBlockNumbers.map(async (blockNumberText) => {
+              try {
+                const block = await publicClient.getBlock({ blockNumber: BigInt(blockNumberText) });
+                blockTimestampByNumber.set(blockNumberText, block.timestamp);
+              } catch {
+                blockTimestampByNumber.set(blockNumberText, null);
+              }
+            }),
+          );
+
+          rowsWithTimestamp.forEach((row, index) => {
+            if (row.blockTimestamp !== null) return;
+            rowsWithTimestamp[index] = {
+              ...row,
+              blockTimestamp: blockTimestampByNumber.get(row.blockNumber.toString()) ?? null,
+            };
+          });
+        }
+      }
+      setSwapHistoryRows(rowsWithTimestamp);
     } catch (error) {
       setSwapHistoryRows([]);
       setSwapHistoryError(error instanceof Error ? error.message : 'Could not load swap history.');
     } finally {
       setIsLoadingSwapHistory(false);
     }
-  }, [hyperDuelContractAddress, matchId]);
+  }, [hyperDuelContractAddress, matchId, publicClient]);
 
   useEffect(() => {
     setSwapLegs((currentLegs) =>
@@ -396,6 +464,24 @@ export function SwapPanel({
     void loadSwapHistory();
   }, [isSwapConfirmed, loadSwapHistory]);
   useEffect(() => {
+    if (!isSwapConfirmed || !swapHash) return;
+    if (handledConfirmedSwapHashRef.current === swapHash) return;
+
+    handledConfirmedSwapHashRef.current = swapHash;
+    setOpenPickerId(null);
+    setExpandedStepById({});
+    setSwapLegs([
+      {
+        id: 1,
+        tokenIn: selectableTokens[0] ?? 0,
+        tokenOut: selectableTokens[1] ?? selectableTokens[0] ?? 0,
+        amountIn: '',
+        usePreviousOutput: false,
+      },
+    ]);
+    onSwapConfirmed?.();
+  }, [isSwapConfirmed, onSwapConfirmed, selectableTokens, swapHash]);
+  useEffect(() => {
     const handlePointerDown = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
@@ -419,18 +505,37 @@ export function SwapPanel({
   const traderFeePercent = Number(traderFeeBps) / 100;
 
   const simulationLegs = useMemo(() => {
-    const rows = swapLegs.map((leg, index) => {
+    const projectedBalanceByTokenId: Record<number, bigint> = { ...virtualBalanceByTokenId };
+    const projectedBalanceApproxByTokenId: Record<number, boolean> = {};
+
+    for (const tokenId of selectableTokens) {
+      if (projectedBalanceApproxByTokenId[tokenId] === undefined) projectedBalanceApproxByTokenId[tokenId] = false;
+      if (projectedBalanceByTokenId[tokenId] === undefined) projectedBalanceByTokenId[tokenId] = 0n;
+    }
+
+    const rows = swapLegs.map((leg) => {
       const tokenInPrice = tokenPriceById[leg.tokenIn];
       const tokenOutPrice = tokenPriceById[leg.tokenOut];
-      if (!tokenInPrice || !tokenOutPrice || tokenOutPrice === 0n || leg.tokenIn === leg.tokenOut) {
+      const tokenInScale = tokenPriceScaleById[leg.tokenIn];
+      const tokenOutScale = tokenPriceScaleById[leg.tokenOut];
+      const tokenInBalanceBefore = projectedBalanceByTokenId[leg.tokenIn] ?? 0n;
+      const tokenOutBalanceBefore = projectedBalanceByTokenId[leg.tokenOut] ?? 0n;
+      const tokenInBalanceApprox = projectedBalanceApproxByTokenId[leg.tokenIn] ?? false;
+      const tokenOutBalanceApprox = projectedBalanceApproxByTokenId[leg.tokenOut] ?? false;
+      if (!tokenInPrice || !tokenOutPrice || !tokenInScale || !tokenOutScale || tokenOutPrice === 0n || tokenInScale === 0n || leg.tokenIn === leg.tokenOut) {
         return {
           ...leg,
           usePreviousOutput: false,
+          tokenInBalanceBefore,
+          tokenOutBalanceBefore,
+          tokenInBalanceApprox,
+          tokenOutBalanceApprox,
           parsedAmountIn: null,
           grossAmountOut: null,
           feeInOutToken: null,
           amountOut: null,
           feeInUsd: null,
+          hasEnoughBalance: false,
           isValid: false,
         };
       }
@@ -448,36 +553,59 @@ export function SwapPanel({
         return {
           ...leg,
           usePreviousOutput: false,
+          tokenInBalanceBefore,
+          tokenOutBalanceBefore,
+          tokenInBalanceApprox,
+          tokenOutBalanceApprox,
           parsedAmountIn: null,
           grossAmountOut: null,
           feeInOutToken: null,
           amountOut: null,
           feeInUsd: null,
+          hasEnoughBalance: false,
           isValid: false,
         };
       }
 
-      const grossOut = (parsedAmountIn * tokenInPrice) / tokenOutPrice;
+      const grossOut = (parsedAmountIn * tokenInPrice * tokenOutScale) / (tokenOutPrice * tokenInScale);
       const feeInOutToken = (grossOut * traderFeeBps) / platformFeeBase;
       const amountOut = grossOut - feeInOutToken;
-      const feeInUsd = (feeInOutToken * tokenOutPrice) / usdVirtualPriceScale;
+      const feeInUsd = (feeInOutToken * tokenOutPrice) / tokenOutScale;
+      const hasEnoughBalance = parsedAmountIn <= tokenInBalanceBefore;
+
+      if (hasEnoughBalance) {
+        projectedBalanceByTokenId[leg.tokenIn] = tokenInBalanceBefore - parsedAmountIn;
+        projectedBalanceByTokenId[leg.tokenOut] = tokenOutBalanceBefore + amountOut;
+        projectedBalanceApproxByTokenId[leg.tokenOut] = true;
+      }
 
       return {
         ...leg,
         usePreviousOutput: false,
+        tokenInBalanceBefore,
+        tokenOutBalanceBefore,
+        tokenInBalanceApprox,
+        tokenOutBalanceApprox,
         parsedAmountIn,
         grossAmountOut: grossOut,
         feeInOutToken,
         amountOut,
         feeInUsd,
-        isValid: true,
+        hasEnoughBalance,
+        isValid: hasEnoughBalance,
       };
     });
 
     return rows;
-  }, [swapLegs, tokenPriceById, traderFeeBps]);
+  }, [selectableTokens, swapLegs, tokenPriceById, tokenPriceScaleById, traderFeeBps, virtualBalanceByTokenId]);
 
   const allLegsValid = simulationLegs.length > 0 && simulationLegs.every((leg) => leg.isValid && leg.parsedAmountIn && leg.amountOut);
+  const canAddSwap = Boolean(simulationLegs[simulationLegs.length - 1]?.isValid);
+  const plannedSwapCount = simulationLegs.length;
+  const executionHintLabel =
+    plannedSwapCount === 1
+      ? 'Clicking swap executes Swap 1.'
+      : `Clicking swap executes all ${plannedSwapCount} swaps in order (Swap 1 -> Swap ${plannedSwapCount}).`;
   const isSwapLocked = disableSwap;
   const canSwap =
     isConnected &&
@@ -506,6 +634,7 @@ export function SwapPanel({
     setSwapLegs((current) => current.map((leg) => (leg.id === legId ? { ...leg, ...patch } : leg)));
   };
   const addSwapLeg = () => {
+    if (!canAddSwap) return;
     setExpandedStepById({});
     setSwapLegs((current) => [
       ...current,
@@ -664,14 +793,14 @@ export function SwapPanel({
     if (connectedPlayerTotalUsd === null || estimatedFeeInUsd === null) return null;
     return connectedPlayerTotalUsd > estimatedFeeInUsd ? connectedPlayerTotalUsd - estimatedFeeInUsd : 0n;
   }, [connectedPlayerTotalUsd, estimatedFeeInUsd]);
-  const tokenPriceLabel = (tokenId: number) => {
-    const tokenPrice = tokenPriceById[tokenId];
-    if (!tokenPrice) return '...';
-    return `$${compactNumber(formatUnits(tokenPrice, tokenPriceDecimals))}`;
-  };
   const formatVirtualAmount = (amount: bigint | null | undefined) => {
     if (amount === null || amount === undefined) return '-';
-    return compactNumber(formatUnits(amount, virtualAssetDecimals));
+    return compactNumber(formatUnits(amount, virtualAssetDecimals), 6);
+  };
+  const formatProjectedTokenBalance = (amount: bigint | null | undefined, tokenId: number, approximate: boolean) => {
+    const symbol = getTokenSymbol(tokenId);
+    const prefix = approximate ? '~ ' : '';
+    return `${prefix}${formatVirtualAmount(amount)} ${symbol}`;
   };
   const formatSwapRateLabel = (amountIn: bigint, amountOut: bigint, tokenIn: number, tokenOut: number) => {
     if (amountIn <= 0n) return '-';
@@ -680,13 +809,22 @@ export function SwapPanel({
     return `1 ${getTokenSymbol(tokenIn)} = ${rate} ${getTokenSymbol(tokenOut)}`;
   };
   const formatApproxUsdFromTokenAmount = (amount: bigint | null | undefined, tokenId: number) => {
-    if (amount === null || amount === undefined) return '~ -';
+    const showApproxPrefix = tokenId !== 0;
+    if (amount === null || amount === undefined) return showApproxPrefix ? '~ -' : '-';
     const price = tokenPriceById[tokenId];
-    if (!price) return '~ -';
-    const usdValue = (amount * price) / usdVirtualPriceScale;
+    const priceScale = tokenPriceScaleById[tokenId];
+    if (!price || !priceScale || priceScale === 0n) return showApproxPrefix ? '~ -' : '-';
+    const usdValue = (amount * price) / priceScale;
     const numeric = Number(formatUnits(usdValue, virtualAssetDecimals));
-    if (!Number.isFinite(numeric)) return `~ $${compactNumber(formatUnits(usdValue, virtualAssetDecimals))}`;
-    return `~ $${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(numeric)}`;
+    const prefix = showApproxPrefix ? '~ ' : '';
+    if (!Number.isFinite(numeric)) return `${prefix}$${compactNumber(formatUnits(usdValue, virtualAssetDecimals))}`;
+    return `${prefix}$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(numeric)}`;
+  };
+  const formatUsdAmount = (value: bigint | null | undefined) => {
+    if (value === null || value === undefined) return null;
+    const numeric = Number(formatUnits(value, virtualAssetDecimals));
+    if (!Number.isFinite(numeric)) return `$${compactNumber(formatUnits(value, virtualAssetDecimals))}`;
+    return `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(numeric)}`;
   };
   const firstLeg = simulationLegs[0];
   const lastLeg = simulationLegs[simulationLegs.length - 1];
@@ -697,17 +835,19 @@ export function SwapPanel({
     for (const leg of simulationLegs) {
       const tokenInPrice = tokenPriceById[leg.tokenIn];
       const tokenOutPrice = tokenPriceById[leg.tokenOut];
-      if (!tokenInPrice || !tokenOutPrice || tokenOutPrice === 0n || leg.tokenIn === leg.tokenOut) {
+      const tokenInScale = tokenPriceScaleById[leg.tokenIn];
+      const tokenOutScale = tokenPriceScaleById[leg.tokenOut];
+      if (!tokenInPrice || !tokenOutPrice || !tokenInScale || !tokenOutScale || tokenOutPrice === 0n || tokenInScale === 0n || leg.tokenIn === leg.tokenOut) {
         return null;
       }
 
-      const grossOut = (amountInRoute * tokenInPrice) / tokenOutPrice;
+      const grossOut = (amountInRoute * tokenInPrice * tokenOutScale) / (tokenOutPrice * tokenInScale);
       const feeInOutToken = (grossOut * traderFeeBps) / platformFeeBase;
       amountInRoute = grossOut - feeInOutToken;
     }
 
     return amountInRoute;
-  }, [simulationLegs, tokenPriceById, traderFeeBps]);
+  }, [simulationLegs, tokenPriceById, tokenPriceScaleById, traderFeeBps]);
   const exchangeRateLabel = useMemo(() => {
     if (!routeAmountOutForOneIn) return '-';
     const inPerOut = Number(formatUnits(routeAmountOutForOneIn, 18));
@@ -792,13 +932,34 @@ export function SwapPanel({
                   <div className="px-3 pt-3 font-mono text-[11px] font-black uppercase tracking-[0.08em] text-[#666]">Sell</div>
                   <div className="grid gap-3 px-3 pb-3 pt-2 md:grid-cols-[minmax(0,1fr)_220px]">
                     <div>
-                      <input
-                        className="w-full bg-transparent font-mono text-4xl font-black text-[#2f2f2f] outline-none placeholder:text-[#9a9a9a] disabled:text-[#7f7f7f]"
-                        type="text"
-                        placeholder="0.0"
-                        value={leg.amountIn}
-                        onChange={(event) => updateSwapLeg(leg.id, { amountIn: event.target.value })}
-                      />
+                      <div className="flex items-start justify-between gap-3">
+                        <input
+                          className="w-full bg-transparent font-mono text-4xl font-black text-[#2f2f2f] outline-none placeholder:text-[#9a9a9a] disabled:text-[#7f7f7f]"
+                          type="text"
+                          placeholder="0.0"
+                          value={leg.amountIn}
+                          onChange={(event) => updateSwapLeg(leg.id, { amountIn: event.target.value })}
+                        />
+                        <button
+                          type="button"
+                          className={`border px-2 py-1 font-mono text-[10px] font-black uppercase tracking-[0.08em] ${
+                            leg.tokenInBalanceBefore > 0n
+                              ? 'border-[#b9b9b9] bg-[#f7f7f7] text-[#5d5d5d] hover:bg-[#ececec]'
+                              : 'cursor-not-allowed border-[#c8c8c8] bg-[#f1f1f1] text-[#9a9a9a]'
+                          }`}
+                          onClick={() =>
+                            updateSwapLeg(leg.id, {
+                              amountIn:
+                                leg.tokenInBalanceBefore > 0n
+                                  ? compactNumber(formatUnits(leg.tokenInBalanceBefore, virtualAssetDecimals), 6)
+                                  : '',
+                            })
+                          }
+                          disabled={leg.tokenInBalanceBefore <= 0n}
+                        >
+                          Max
+                        </button>
+                      </div>
                       <div className="mt-1 font-mono text-sm font-bold text-[#666]">
                         {formatApproxUsdFromTokenAmount(leg.parsedAmountIn, leg.tokenIn)}
                       </div>
@@ -831,11 +992,11 @@ export function SwapPanel({
                         </div>
                       ) : null}
                       <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
-                        Balance: {formatVirtualAmount(virtualBalanceByTokenId[leg.tokenIn] ?? 0n)} {getTokenSymbol(leg.tokenIn)}
+                        Balance: {formatProjectedTokenBalance(leg.tokenInBalanceBefore, leg.tokenIn, leg.tokenInBalanceApprox)}
                       </div>
                     </div>
                   </div>
-                  {leg.parsedAmountIn !== null && leg.parsedAmountIn > (virtualBalanceByTokenId[leg.tokenIn] ?? 0n) ? (
+                  {leg.parsedAmountIn !== null && !leg.hasEnoughBalance ? (
                     <div className="border-t border-[#db3030] bg-[#ff4b4b] px-3 py-1 font-mono text-xs font-black text-white">
                       Not enough amount
                     </div>
@@ -894,7 +1055,7 @@ export function SwapPanel({
                         </div>
                       ) : null}
                       <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
-                        Balance: {formatVirtualAmount(virtualBalanceByTokenId[leg.tokenOut] ?? 0n)} {getTokenSymbol(leg.tokenOut)}
+                        Balance: {formatProjectedTokenBalance(leg.tokenOutBalanceBefore, leg.tokenOut, leg.tokenOutBalanceApprox)}
                       </div>
                     </div>
                   </div>
@@ -909,6 +1070,7 @@ export function SwapPanel({
               {leg.amountIn.trim().length > 0 ? (
                 <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
                   Swap Fee: {traderFeePercent.toFixed(traderFeePercent % 1 === 0 ? 0 : 2)}%
+                  {leg.feeInUsd !== null ? ` (${formatUsdAmount(leg.feeInUsd)})` : ''}
                 </div>
               ) : null}
               <div className="mt-1 font-mono text-[11px] font-bold text-[#666]">
@@ -952,16 +1114,6 @@ export function SwapPanel({
           )})}
         </div>
 
-        <div className="mt-3 flex justify-end">
-          <button
-            type="button"
-            className="border border-[#b9b9b9] bg-[#f7f7f7] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec]"
-            onClick={addSwapLeg}
-          >
-            Add Swap
-          </button>
-        </div>
-
       </div>
       ) : null}
 
@@ -969,7 +1121,10 @@ export function SwapPanel({
         <>
           {swapHash ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#447056]">Swap Tx: {swapHash}</div> : null}
 
-          <div className="flex justify-end">
+          <div className="mt-2 text-right font-mono text-[11px] font-bold text-[#666]">
+            {executionHintLabel}
+          </div>
+          <div className="mt-2 flex justify-end">
             <button
               type="button"
               className={`border px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
@@ -981,6 +1136,20 @@ export function SwapPanel({
               disabled={!canSwap}
             >
               {isSwapPending ? 'Confirm In Wallet' : isConfirmingSwap ? 'Swapping...' : 'Swap'}
+            </button>
+          </div>
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              className={`border px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
+                canAddSwap
+                  ? 'border-[#b9b9b9] bg-[#f7f7f7] text-[#4f4f4f] hover:bg-[#ececec]'
+                  : 'cursor-not-allowed border-[#c8c8c8] bg-[#f1f1f1] text-[#9a9a9a]'
+              }`}
+              onClick={addSwapLeg}
+              disabled={!canAddSwap}
+            >
+              Add Swap
             </button>
           </div>
         </>
@@ -1007,6 +1176,7 @@ export function SwapPanel({
                   Rate: {formatSwapRateLabel(row.amountIn, row.amountOut, row.tokenIn, row.tokenOut)}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#666]">
+                  <span>Date (UTC): {formatUnixSecondsUtc(row.blockTimestamp)}</span>
                   <span>
                     Player:{' '}
                     {connectedAddress && row.player.toLowerCase() === connectedAddress ? 'YOU' : formatAddress(row.player)}

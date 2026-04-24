@@ -8,6 +8,7 @@ import { JoinMatchModal } from '../components/JoinMatchModal';
 import { type Match } from '../types/match';
 
 const platformFeeBase = 10_000n;
+const subgraphMatchesUrl = (__GOLDSKY_SUBGRAPH_URL__ ?? '').trim();
 
 type DashboardMatch = {
   id: bigint;
@@ -16,8 +17,124 @@ type DashboardMatch = {
   winner: Address;
   buyIn: bigint;
   duration: bigint;
+  endTs: bigint;
   status: number;
   tokensAllowed: number[];
+};
+
+const readBigInt = (value: unknown): bigint | null => {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === 'string' && value.length > 0) {
+    try {
+      return BigInt(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const readNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'bigint') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    if (value.startsWith('0x')) {
+      const parsedHex = Number.parseInt(value, 16);
+      return Number.isFinite(parsedHex) ? parsedHex : null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+  }
+  return null;
+};
+
+const readAddress = (value: unknown): Address => {
+  if (typeof value === 'string' && value.startsWith('0x') && value.length === 42) {
+    return value as Address;
+  }
+  return zeroAddress;
+};
+
+const normalizeSubgraphTokenIds = (rawValue: unknown): number[] => {
+  if (!Array.isArray(rawValue)) return [];
+  return rawValue
+    .map((tokenId) => readNumber(tokenId))
+    .filter((tokenId): tokenId is number => tokenId !== null);
+};
+
+const normalizeSubgraphMatchRow = (raw: Record<string, unknown>): DashboardMatch | null => {
+  const id = readBigInt(raw.matchId ?? raw.match_id ?? raw.id);
+  if (id === null || id <= 0n) return null;
+
+  return {
+    id,
+    playerA: readAddress(raw.playerA ?? raw.player_a),
+    playerB: readAddress(raw.playerB ?? raw.player_b),
+    winner: readAddress(raw.winner),
+    buyIn: readBigInt(raw.buyIn ?? raw.buy_in) ?? 0n,
+    duration: readBigInt(raw.duration) ?? 0n,
+    endTs: readBigInt(raw.endTs ?? raw.end_ts ?? raw.endTime ?? raw.end_time) ?? 0n,
+    status: readNumber(raw.status ?? raw.statusCode ?? raw.status_code) ?? 0,
+    tokensAllowed: normalizeSubgraphTokenIds(raw.tokensAllowed ?? raw.tokens_allowed),
+  };
+};
+
+const fetchMatchesFromSubgraph = async ({
+  endpoint,
+  limit,
+}: {
+  endpoint: string;
+  limit: number;
+}): Promise<DashboardMatch[] | null> => {
+  const safeLimit = Math.max(1, limit);
+  const attempts: Array<{ rootFieldName: string; query: string }> = [
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}, orderBy: id, orderDirection: desc) { id matchId playerA playerB winner buyIn duration endTs status tokensAllowed } }`,
+    },
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}, orderBy: id, orderDirection: desc) { id match_id player_a player_b winner buy_in duration end_ts status tokens_allowed } }`,
+    },
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}, orderBy: id, orderDirection: desc) { id matchId playerA playerB winner buyIn duration endTs status } }`,
+    },
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}) { id matchId playerA playerB winner buyIn duration endTs status tokensAllowed } }`,
+    },
+  ];
+
+  for (const attempt of attempts) {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: attempt.query }),
+    });
+    if (!response.ok) continue;
+
+    const json = (await response.json()) as { data?: Record<string, unknown>; errors?: Array<{ message?: string }> };
+    if (json.errors?.length) continue;
+    const rows = json.data?.[attempt.rootFieldName];
+    if (!Array.isArray(rows)) continue;
+
+    const normalized = rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        return normalizeSubgraphMatchRow(row as Record<string, unknown>);
+      })
+      .filter((row): row is DashboardMatch => row !== null);
+
+    normalized.sort((a, b) => Number(b.id - a.id));
+    return normalized;
+  }
+
+  return null;
 };
 
 function formatPercent(value: number) {
@@ -111,52 +228,66 @@ export default function DashboardPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const ids = Array.from({ length: latestMatchId }, (_, index) => BigInt(index + 1));
-        const results = await Promise.allSettled(
-          ids.map(async (id) => {
-            const match = (await publicClient.readContract({
-              address: hyperDuelContractAddress,
-              abi: hyperDuelAbi,
-              functionName: 'matches',
-              args: [id],
-            })) as readonly [Address, Address, Address, bigint, bigint, bigint, number];
-
-            const playerA = match[0];
-            const playerB = match[1];
-            if (playerA.toLowerCase() !== account && playerB.toLowerCase() !== account) {
-              return null;
-            }
-
-            let tokensAllowed: readonly number[] | readonly bigint[] = [];
-            try {
-              tokensAllowed = (await publicClient.readContract({
+        const fetchMatchesFromContract = async (): Promise<DashboardMatch[]> => {
+          const ids = Array.from({ length: latestMatchId }, (_, index) => BigInt(index + 1));
+          const results = await Promise.allSettled(
+            ids.map(async (id) => {
+              const match = (await publicClient.readContract({
                 address: hyperDuelContractAddress,
                 abi: hyperDuelAbi,
-                functionName: 'getMatchTokensAllowed',
+                functionName: 'matches',
                 args: [id],
-              })) as readonly number[] | readonly bigint[];
-            } catch {
-              tokensAllowed = [];
-            }
+              })) as readonly [Address, Address, Address, bigint, bigint, bigint, number];
 
-            return {
-              id,
-              playerA,
-              playerB,
-              winner: match[2],
-              buyIn: match[3],
-              duration: match[4],
-              status: Number(match[6]),
-              tokensAllowed: tokensAllowed.map((tokenId) => Number(tokenId)),
-            } satisfies DashboardMatch;
-          }),
-        );
+              let tokensAllowed: readonly number[] | readonly bigint[] = [];
+              try {
+                tokensAllowed = (await publicClient.readContract({
+                  address: hyperDuelContractAddress,
+                  abi: hyperDuelAbi,
+                  functionName: 'getMatchTokensAllowed',
+                  args: [id],
+                })) as readonly number[] | readonly bigint[];
+              } catch {
+                tokensAllowed = [];
+              }
+
+              return {
+                id,
+                playerA: match[0],
+                playerB: match[1],
+                winner: match[2],
+                buyIn: match[3],
+                duration: match[4],
+                endTs: match[5],
+                status: Number(match[6]),
+                tokensAllowed: tokensAllowed.map((tokenId) => Number(tokenId)),
+              } satisfies DashboardMatch;
+            }),
+          );
+
+          return results
+            .filter((item): item is PromiseFulfilledResult<DashboardMatch> => item.status === 'fulfilled')
+            .map((item) => item.value);
+        };
+
+        let records: DashboardMatch[] | null = null;
+        if (subgraphMatchesUrl) {
+          records = await fetchMatchesFromSubgraph({
+            endpoint: subgraphMatchesUrl,
+            limit: latestMatchId,
+          });
+        }
+
+        if (!records || records.length === 0) {
+          records = await fetchMatchesFromContract();
+        }
 
         if (!cancelled) {
-          const hydrated = results
-            .filter((item): item is PromiseFulfilledResult<DashboardMatch | null> => item.status === 'fulfilled')
-            .map((item) => item.value)
-            .filter((item): item is DashboardMatch => item !== null);
+          const hydrated = records.filter((item) => {
+            const playerA = item.playerA.toLowerCase();
+            const playerB = item.playerB.toLowerCase();
+            return playerA === account || playerB === account;
+          });
           setMatches(hydrated);
         }
       } catch (fetchError) {
@@ -449,7 +580,9 @@ export default function DashboardPage() {
         buyInTokenSymbol={buyInTokenSymbol}
         buyInTokenDecimals={buyInTokenDecimals}
         hyperDuelContractAddress={hyperDuelContractAddress}
-        onJoined={() => setMatchesReloadNonce((value) => value + 1)}
+        onJoined={() => {
+          setMatchesReloadNonce((value) => value + 1);
+        }}
         onClose={() => setSelectedReservedMatchToJoin(null)}
       />
     </section>

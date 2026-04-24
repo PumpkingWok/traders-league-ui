@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnits, type Address } from 'viem';
 import {
   useAccount,
@@ -11,13 +11,158 @@ import {
 } from 'wagmi';
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenAvatarUrlByLabel, tokenIndexByChainId, zeroAddress } from '../config/contracts';
-import { compactNumber, formatAddress, formatDurationFromSeconds, formatSpotPriceLabel } from '../utils/format';
+import { compactNumber, formatAddress, formatDurationFromSeconds, formatSpotPriceLabel, formatUnixSecondsUtc } from '../utils/format';
+import { emitBalanceRefresh } from '../utils/appEvents';
 import { SwapPanel } from '../components/SwapPanel';
 import { JoinMatchModal } from '../components/JoinMatchModal';
+import { ResolveMatchModal } from '../components/ResolveMatchModal';
 import { type Match } from '../types/match';
 
 const platformFeeBase = 10_000n;
-const usdVirtualPriceScale = 10_000n;
+const subgraphMatchesUrl = (__GOLDSKY_SUBGRAPH_URL__ ?? '').trim();
+const startingVirtualUsd = 100_000n * 10n ** 18n;
+
+type BaseMatchRecord = {
+  id: bigint;
+  playerA: Address;
+  playerB: Address;
+  winner: Address;
+  buyIn: bigint;
+  duration: bigint;
+  endTs: bigint;
+  status: number;
+  tokensAllowed: number[];
+};
+
+type MyMatchRecord = BaseMatchRecord & {
+  currentWinner: Address;
+  playerATotalUsd: bigint | null;
+  playerBTotalUsd: bigint | null;
+};
+
+const readBigInt = (value: unknown): bigint | null => {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === 'string' && value.length > 0) {
+    try {
+      return BigInt(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const readNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'bigint') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    if (value.startsWith('0x')) {
+      const parsedHex = Number.parseInt(value, 16);
+      return Number.isFinite(parsedHex) ? parsedHex : null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+  }
+  return null;
+};
+
+const readAddress = (value: unknown): Address => {
+  if (typeof value === 'string' && value.startsWith('0x') && value.length === 42) {
+    return value as Address;
+  }
+  return zeroAddress;
+};
+
+const normalizeSubgraphTokenIds = (rawValue: unknown): number[] => {
+  if (!Array.isArray(rawValue)) return [];
+  return rawValue
+    .map((tokenId) => readNumber(tokenId))
+    .filter((tokenId): tokenId is number => tokenId !== null);
+};
+
+const normalizeSubgraphMatchRow = (raw: Record<string, unknown>): BaseMatchRecord | null => {
+  const id = readBigInt(raw.matchId ?? raw.match_id ?? raw.id);
+  if (id === null || id <= 0n) return null;
+
+  const playerA = readAddress(raw.playerA ?? raw.player_a);
+  const playerB = readAddress(raw.playerB ?? raw.player_b);
+  const winner = readAddress(raw.winner);
+  const buyIn = readBigInt(raw.buyIn ?? raw.buy_in) ?? 0n;
+  const duration = readBigInt(raw.duration) ?? 0n;
+  const endTs = readBigInt(raw.endTs ?? raw.end_ts ?? raw.endTime ?? raw.end_time) ?? 0n;
+  const status = readNumber(raw.status ?? raw.statusCode ?? raw.status_code) ?? 0;
+  const tokensAllowed = normalizeSubgraphTokenIds(raw.tokensAllowed ?? raw.tokens_allowed);
+
+  return {
+    id,
+    playerA,
+    playerB,
+    winner,
+    buyIn,
+    duration,
+    endTs,
+    status,
+    tokensAllowed,
+  };
+};
+
+const fetchMatchesFromSubgraph = async ({
+  endpoint,
+  limit,
+}: {
+  endpoint: string;
+  limit: number;
+}): Promise<BaseMatchRecord[] | null> => {
+  const safeLimit = Math.max(1, limit);
+  const attempts: Array<{ rootFieldName: string; query: string }> = [
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}, orderBy: id, orderDirection: desc) { id matchId playerA playerB winner buyIn duration endTs status tokensAllowed } }`,
+    },
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}, orderBy: id, orderDirection: desc) { id match_id player_a player_b winner buy_in duration end_ts status tokens_allowed } }`,
+    },
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}, orderBy: id, orderDirection: desc) { id matchId playerA playerB winner buyIn duration endTs status } }`,
+    },
+    {
+      rootFieldName: 'matches',
+      query: `query MatchRows { matches(first: ${safeLimit}) { id matchId playerA playerB winner buyIn duration endTs status tokensAllowed } }`,
+    },
+  ];
+
+  for (const attempt of attempts) {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: attempt.query }),
+    });
+    if (!response.ok) continue;
+
+    const json = (await response.json()) as { data?: Record<string, unknown>; errors?: Array<{ message?: string }> };
+    if (json.errors?.length) continue;
+    const rows = json.data?.[attempt.rootFieldName];
+    if (!Array.isArray(rows)) continue;
+
+    const normalized = rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        return normalizeSubgraphMatchRow(row as Record<string, unknown>);
+      })
+      .filter((row): row is BaseMatchRecord => row !== null);
+
+    normalized.sort((a, b) => Number(b.id - a.id));
+    return normalized;
+  }
+
+  return null;
+};
 
 function formatMatchCountdown(remainingSeconds: bigint): string {
   if (remainingSeconds <= 0n) return 'Ended';
@@ -36,7 +181,7 @@ function formatMatchCountdown(remainingSeconds: bigint): string {
   return `${minutes.toString()}m`;
 }
 
-export default function MyMatchesPage() {
+export default function MyMatchesPage({ refreshNonce }: { refreshNonce: number }) {
   const { isConnected, address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient();
@@ -51,22 +196,7 @@ export default function MyMatchesPage() {
     [tokenIndexMap],
   );
 
-  const [matches, setMatches] = useState<
-    Array<{
-      id: bigint;
-      playerA: Address;
-      playerB: Address;
-      winner: Address;
-      currentWinner: Address;
-      playerATotalUsd: bigint | null;
-      playerBTotalUsd: bigint | null;
-      buyIn: bigint;
-      duration: bigint;
-      endTs: bigint;
-      status: number;
-      tokensAllowed: number[];
-    }>
-  >([]);
+  const [matches, setMatches] = useState<MyMatchRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [matchesReloadNonce, setMatchesReloadNonce] = useState(0);
@@ -74,6 +204,13 @@ export default function MyMatchesPage() {
   const [concludingMatchId, setConcludingMatchId] = useState<bigint | null>(null);
   const [unjoiningMatchId, setUnjoiningMatchId] = useState<bigint | null>(null);
   const [selectedReservedMatchToJoin, setSelectedReservedMatchToJoin] = useState<Match | null>(null);
+  const [selectedMatchToResolve, setSelectedMatchToResolve] = useState<{
+    matchId: bigint;
+    playerA: Address;
+    playerB: Address;
+    predictedWinner: Address;
+    buyIn: bigint;
+  } | null>(null);
   const [activeSection, setActiveSection] = useState<'current' | 'to-start' | 'history'>('current');
   const [isMatchSelectorOpen, setIsMatchSelectorOpen] = useState(false);
   const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
@@ -97,7 +234,7 @@ export default function MyMatchesPage() {
     hash: unjoinMatchHash,
   });
 
-  const { data: latestMatchIdData } = useReadContract({
+  const { data: latestMatchIdData, refetch: refetchLatestMatchId } = useReadContract({
     address: hyperDuelContractAddress,
     abi: hyperDuelAbi,
     functionName: 'matchId',
@@ -157,6 +294,11 @@ export default function MyMatchesPage() {
   }, []);
 
   useEffect(() => {
+    if (!isConnected || !address || !hyperDuelContractAddress) return;
+    void refetchLatestMatchId();
+  }, [address, hyperDuelContractAddress, isConnected, refetchLatestMatchId, refreshNonce, matchesReloadNonce]);
+
+  useEffect(() => {
     if (!isConnected || !address) {
       setMatches([]);
       setIsLoading(false);
@@ -181,84 +323,131 @@ export default function MyMatchesPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const matchIds = Array.from({ length: latestMatchId }, (_, index) => BigInt(index + 1));
-        const recordsResult = await Promise.allSettled(
-          matchIds.map(async (id) => {
-            const match = (await publicClient.readContract({
-              address: hyperDuelContractAddress,
-              abi: hyperDuelAbi,
-              functionName: 'matches',
-              args: [id],
-            })) as readonly [Address, Address, Address, bigint, bigint, bigint, number];
-
-            const playerA = match[0];
-            const playerB = match[1];
-            if (playerA.toLowerCase() !== account && playerB.toLowerCase() !== account) {
-              return null;
-            }
-
-            let tokensAllowed: readonly number[] | readonly bigint[] = [];
-            try {
-              tokensAllowed = (await publicClient.readContract({
+        const fetchBaseMatchesFromContract = async (): Promise<{
+          records: BaseMatchRecord[];
+          failedReads: number;
+        }> => {
+          const matchIds = Array.from({ length: latestMatchId }, (_, index) => BigInt(index + 1));
+          const results = await Promise.allSettled(
+            matchIds.map(async (id) => {
+              const match = (await publicClient.readContract({
                 address: hyperDuelContractAddress,
                 abi: hyperDuelAbi,
-                functionName: 'getMatchTokensAllowed',
+                functionName: 'matches',
                 args: [id],
-              })) as readonly number[] | readonly bigint[];
-            } catch {
-              tokensAllowed = [];
-            }
+              })) as readonly [Address, Address, Address, bigint, bigint, bigint, number];
 
+              let tokensAllowed: readonly number[] | readonly bigint[] = [];
+              try {
+                tokensAllowed = (await publicClient.readContract({
+                  address: hyperDuelContractAddress,
+                  abi: hyperDuelAbi,
+                  functionName: 'getMatchTokensAllowed',
+                  args: [id],
+                })) as readonly number[] | readonly bigint[];
+              } catch {
+                tokensAllowed = [];
+              }
+
+              return {
+                id,
+                playerA: match[0],
+                playerB: match[1],
+                winner: match[2],
+                buyIn: match[3],
+                duration: match[4],
+                endTs: match[5],
+                status: Number(match[6]),
+                tokensAllowed: tokensAllowed.map((tokenId) => Number(tokenId)),
+              } satisfies BaseMatchRecord;
+            }),
+          );
+
+          const records = results
+            .filter((result): result is PromiseFulfilledResult<BaseMatchRecord> => result.status === 'fulfilled')
+            .map((result) => result.value);
+          const failedReads = results.filter((result) => result.status === 'rejected').length;
+          return { records, failedReads };
+        };
+
+        let baseRecords: BaseMatchRecord[] = [];
+        let failedReads = 0;
+
+        if (subgraphMatchesUrl) {
+          const subgraphRecords = await fetchMatchesFromSubgraph({
+            endpoint: subgraphMatchesUrl,
+            limit: latestMatchId,
+          });
+          if (subgraphRecords) {
+            baseRecords = subgraphRecords;
+          }
+        }
+
+        if (baseRecords.length === 0) {
+          const fromContract = await fetchBaseMatchesFromContract();
+          baseRecords = fromContract.records;
+          failedReads += fromContract.failedReads;
+        }
+
+        const accountMatches = baseRecords.filter((record) => {
+          const playerA = record.playerA.toLowerCase();
+          const playerB = record.playerB.toLowerCase();
+          return playerA === account || playerB === account;
+        });
+
+        const recordsResult = await Promise.allSettled(
+          accountMatches.map(async (record) => {
             let playerATotalUsd: bigint | null = null;
             let playerBTotalUsd: bigint | null = null;
             let currentWinner: Address = zeroAddress as Address;
-            if (Number(match[6]) === 1 && playerA.toLowerCase() !== zeroAddress && playerB.toLowerCase() !== zeroAddress) {
+            if (
+              record.status === 1 &&
+              record.playerA.toLowerCase() !== zeroAddress &&
+              record.playerB.toLowerCase() !== zeroAddress
+            ) {
               [playerATotalUsd, playerBTotalUsd] = (await Promise.all([
                 publicClient.readContract({
                   address: hyperDuelContractAddress,
                   abi: hyperDuelAbi,
                   functionName: 'getPlayerTotalUsd',
-                  args: [id, playerA],
+                  args: [record.id, record.playerA],
                 }),
                 publicClient.readContract({
                   address: hyperDuelContractAddress,
                   abi: hyperDuelAbi,
                   functionName: 'getPlayerTotalUsd',
-                  args: [id, playerB],
+                  args: [record.id, record.playerB],
                 }),
               ])) as [bigint, bigint];
 
               currentWinner =
-                playerATotalUsd === playerBTotalUsd ? (zeroAddress as Address) : playerATotalUsd > playerBTotalUsd ? playerA : playerB;
+                playerATotalUsd === playerBTotalUsd
+                  ? (zeroAddress as Address)
+                  : playerATotalUsd > playerBTotalUsd
+                    ? record.playerA
+                    : record.playerB;
             }
 
             return {
-              id,
-              playerA,
-              playerB,
-              winner: match[2],
+              ...record,
               currentWinner,
               playerATotalUsd,
               playerBTotalUsd,
-              buyIn: match[3],
-              duration: match[4],
-              endTs: match[5],
-              status: Number(match[6]),
-              tokensAllowed: tokensAllowed.map((tokenId) => Number(tokenId)),
-            };
+            } satisfies MyMatchRecord;
           }),
         );
 
         if (!cancelled) {
           const hydrated = recordsResult
-            .filter((result): result is PromiseFulfilledResult<(typeof matches)[number] | null> => result.status === 'fulfilled')
+            .filter((result): result is PromiseFulfilledResult<MyMatchRecord> => result.status === 'fulfilled')
             .map((result) => result.value)
-            .filter((value): value is (typeof matches)[number] => value !== null);
+            .filter((value): value is MyMatchRecord => value !== null);
           setMatches(hydrated);
 
-          const failedReads = recordsResult.filter((result) => result.status === 'rejected').length;
-          if (failedReads > 0) {
-            setError(`Some matches could not be loaded (${failedReads} failed read${failedReads === 1 ? '' : 's'}).`);
+          const hydrationFailures = recordsResult.filter((result) => result.status === 'rejected').length;
+          const totalFailedReads = failedReads + hydrationFailures;
+          if (totalFailedReads > 0) {
+            setError(`Some matches could not be loaded (${totalFailedReads} failed read${totalFailedReads === 1 ? '' : 's'}).`);
           }
         }
       } catch (fetchError) {
@@ -314,6 +503,7 @@ export default function MyMatchesPage() {
     if (!isConcludeConfirmed) return;
     setConcludingMatchId(null);
     setMatchesReloadNonce((previous) => previous + 1);
+    emitBalanceRefresh();
   }, [isConcludeConfirmed]);
 
   useEffect(() => {
@@ -324,11 +514,16 @@ export default function MyMatchesPage() {
     if (!isUnjoinConfirmed) return;
     setUnjoiningMatchId(null);
     setMatchesReloadNonce((previous) => previous + 1);
+    emitBalanceRefresh();
   }, [isUnjoinConfirmed]);
   useEffect(() => {
     if (!unjoinMatchError) return;
     setUnjoiningMatchId(null);
   }, [unjoinMatchError]);
+  const handleSwapConfirmed = useCallback(() => {
+    setMatchesReloadNonce((previous) => previous + 1);
+    emitBalanceRefresh();
+  }, []);
 
   useEffect(() => {
     if (!isMatchSelectorOpen) return;
@@ -452,6 +647,7 @@ export default function MyMatchesPage() {
       concludingMatchId === selectedOngoingMatch.id &&
       (isConcludePending || isConcludeConfirming),
   );
+  const isResolvingFromModal = Boolean(isConcludePending || isConcludeConfirming);
   const getMatchSelectorLabel = (match: (typeof matches)[number]) => {
     const usdLabels = getCurrentMatchUsdLabels(match);
     return `#${match.id.toString()} | YOU ${usdLabels.youUsd} USD | Opponent ${usdLabels.otherUsd} USD | Countdown ${getCurrentMatchCountdown(match)}`;
@@ -461,6 +657,17 @@ export default function MyMatchesPage() {
     const numeric = Number(formatUnits(value, 18));
     if (!Number.isFinite(numeric)) return `$${compactNumber(formatUnits(value, 18))}`;
     return `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(numeric)}`;
+  };
+  const formatVsStartPercent = (value: bigint | null) => {
+    if (value === null) return '-';
+    const delta = value - startingVirtualUsd;
+    const deltaPercent = (delta * 10_000n) / startingVirtualUsd;
+    const isNegative = deltaPercent < 0n;
+    const absoluteBps = isNegative ? -deltaPercent : deltaPercent;
+    const whole = absoluteBps / 100n;
+    const fraction = absoluteBps % 100n;
+    const sign = isNegative ? '-' : '+';
+    return `${sign}${whole.toString()}.${fraction.toString().padStart(2, '0')}%`;
   };
   const getPrizeLabels = (match: (typeof matches)[number]) => {
     const grossPrize = match.buyIn * 2n;
@@ -473,7 +680,7 @@ export default function MyMatchesPage() {
     };
   };
   const portfolioTokenPriceById = useMemo(() => {
-    const map: Record<number, bigint> = { 0: usdVirtualPriceScale };
+    const map: Record<number, bigint> = {};
     if (!selectedOngoingMatch) return map;
     selectedOngoingMatch.tokensAllowed.forEach((tokenId, index) => {
       const rawPrice = portfolioTokenPricesData?.[index]?.result;
@@ -485,6 +692,21 @@ export default function MyMatchesPage() {
     });
     return map;
   }, [portfolioTokenPricesData, selectedOngoingMatch]);
+  const portfolioTokenPriceDecimalsById = useMemo(() => {
+    const map: Record<number, number | null> = {};
+    if (!selectedOngoingMatch) return map;
+    selectedOngoingMatch.tokensAllowed.forEach((tokenId, index) => {
+      const rawPriceDecimals = portfolioTokenPriceDecimalsData?.[index]?.result;
+      const parsedDecimals =
+        typeof rawPriceDecimals === 'number' && Number.isFinite(rawPriceDecimals)
+          ? rawPriceDecimals
+          : typeof rawPriceDecimals === 'bigint'
+            ? Number(rawPriceDecimals)
+            : null;
+      map[tokenId] = parsedDecimals !== null && parsedDecimals >= 0 ? parsedDecimals : null;
+    });
+    return map;
+  }, [portfolioTokenPriceDecimalsData, selectedOngoingMatch]);
   const portfolioRows = useMemo(() => {
     if (!selectedOngoingMatch) return [];
     return portfolioTokenIds
@@ -504,8 +726,13 @@ export default function MyMatchesPage() {
               ? BigInt(rawPlayerBBalance)
               : 0n;
         const tokenPrice = portfolioTokenPriceById[tokenId] ?? null;
-        const playerAUsdValue = tokenPrice === null ? null : (playerABalance * tokenPrice) / usdVirtualPriceScale;
-        const playerBUsdValue = tokenPrice === null ? null : (playerBBalance * tokenPrice) / usdVirtualPriceScale;
+        const tokenPriceDecimals = portfolioTokenPriceDecimalsById[tokenId] ?? null;
+        const tokenPriceScale =
+          tokenId === 0 ? null : tokenPriceDecimals === null ? null : 10n ** BigInt(tokenPriceDecimals);
+        const playerAUsdValue =
+          tokenId === 0 ? playerABalance : tokenPrice === null || tokenPriceScale === null ? null : (playerABalance * tokenPrice) / tokenPriceScale;
+        const playerBUsdValue =
+          tokenId === 0 ? playerBBalance : tokenPrice === null || tokenPriceScale === null ? null : (playerBBalance * tokenPrice) / tokenPriceScale;
         return {
           tokenId,
           tokenLabel: tokenId === 0 ? 'USD' : tokenLabelById[tokenId] ?? `T${tokenId}`,
@@ -520,6 +747,7 @@ export default function MyMatchesPage() {
     playerAPortfolioBalancesData,
     playerBPortfolioBalancesData,
     portfolioTokenIds,
+    portfolioTokenPriceDecimalsById,
     portfolioTokenPriceById,
     selectedOngoingMatch,
     tokenLabelById,
@@ -564,10 +792,10 @@ export default function MyMatchesPage() {
         tokenId,
         tokenLabel: tokenLabelById[tokenId] ?? `T${tokenId}`,
         spotPrice: portfolioTokenPriceById[tokenId] ?? null,
-        spotPriceDecimals,
+        spotPriceDecimals: portfolioTokenPriceDecimalsById[tokenId] ?? spotPriceDecimals,
       };
     });
-  }, [portfolioTokenPriceById, portfolioTokenPriceDecimalsData, selectedOngoingMatch, tokenLabelById]);
+  }, [portfolioTokenPriceById, portfolioTokenPriceDecimalsById, portfolioTokenPriceDecimalsData, selectedOngoingMatch, tokenLabelById]);
   const selectedMatchPrizeLabels = useMemo(
     () => (selectedOngoingMatch ? getPrizeLabels(selectedOngoingMatch) : null),
     [platformFeeBps, buyInTokenDecimals, buyInTokenSymbol, selectedOngoingMatch],
@@ -666,6 +894,21 @@ export default function MyMatchesPage() {
       functionName: 'concludeMatch',
       args: [matchId],
     });
+  };
+  const openResolveModalForMatch = (match: (typeof matches)[number]) => {
+    setSelectedMatchToResolve({
+      matchId: match.id,
+      playerA: match.playerA,
+      playerB: match.playerB,
+      predictedWinner: match.currentWinner,
+      buyIn: match.buyIn,
+    });
+  };
+  const confirmResolveMatch = () => {
+    if (!selectedMatchToResolve) return;
+    const matchId = selectedMatchToResolve.matchId;
+    setSelectedMatchToResolve(null);
+    handleConcludeMatch(matchId);
   };
   const handleUnjoinMatch = (matchId: bigint) => {
     if (!hyperDuelContractAddress || isUnjoinPending || isUnjoinConfirming) return;
@@ -806,28 +1049,33 @@ export default function MyMatchesPage() {
 
               <div className="border border-[#b9b9b9] bg-[#f9f9f9] px-4 py-4">
                 <div className="grid gap-3 font-mono text-sm font-bold text-[#454545] md:grid-cols-2">
-                  <div><span className="text-[#666]">Status:</span> Ongoing</div>
-                  <div>
-                    <span className="text-[#666]">Players:</span>{' '}
-                    {selectedOngoingMatch.playerA.toLowerCase() === address.toLowerCase()
-                      ? `You vs ${selectedOngoingMatch.playerB.toLowerCase() === zeroAddress ? 'Waiting opponent' : formatAddress(selectedOngoingMatch.playerB)}`
-                      : selectedOngoingMatch.playerB.toLowerCase() === address.toLowerCase()
-                        ? `${selectedOngoingMatch.playerA.toLowerCase() === zeroAddress ? 'Waiting opponent' : formatAddress(selectedOngoingMatch.playerA)} vs You`
-                        : `${formatAddress(selectedOngoingMatch.playerA)} vs ${formatAddress(selectedOngoingMatch.playerB)}`}
+                  <div className="space-y-3">
+                    <div><span className="text-[#666]">Status:</span> Ongoing</div>
+                    <div>
+                      <span className="text-[#666]">Buy-in:</span>{' '}
+                      {compactNumber(formatUnits(selectedOngoingMatch.buyIn, buyInTokenDecimals))} {buyInTokenSymbol}
+                    </div>
+                    <div>
+                      <span className="text-[#666]">Prize (Net):</span> {selectedMatchPrizeLabels?.net ?? '-'}{' '}
+                      <span className="text-[#666]">
+                        (Fee: {selectedMatchPrizeLabels?.fee ?? '-'} • {selectedMatchPrizeLabels?.feeBpsLabel ?? '-'})
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-[#666]">Buy-in:</span>{' '}
-                    {compactNumber(formatUnits(selectedOngoingMatch.buyIn, buyInTokenDecimals))} {buyInTokenSymbol}
-                  </div>
-                  <div><span className="text-[#666]">Duration:</span> {formatDurationFromSeconds(selectedOngoingMatch.duration)}</div>
-                  <div>
-                    <span className="text-[#666]">Prize (Net):</span> {selectedMatchPrizeLabels?.net ?? '-'}{' '}
-                    <span className="text-[#666]">
-                      (Fee: {selectedMatchPrizeLabels?.fee ?? '-'} • {selectedMatchPrizeLabels?.feeBpsLabel ?? '-'})
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[#666]">Countdown:</span> {getCurrentMatchCountdown(selectedOngoingMatch)}
+                  <div className="space-y-3">
+                    <div>
+                      <span className="text-[#666]">Players:</span>{' '}
+                      {selectedOngoingMatch.playerA.toLowerCase() === address.toLowerCase()
+                        ? `You vs ${selectedOngoingMatch.playerB.toLowerCase() === zeroAddress ? 'Waiting opponent' : formatAddress(selectedOngoingMatch.playerB)}`
+                        : selectedOngoingMatch.playerB.toLowerCase() === address.toLowerCase()
+                          ? `${selectedOngoingMatch.playerA.toLowerCase() === zeroAddress ? 'Waiting opponent' : formatAddress(selectedOngoingMatch.playerA)} vs You`
+                          : `${formatAddress(selectedOngoingMatch.playerA)} vs ${formatAddress(selectedOngoingMatch.playerB)}`}
+                    </div>
+                    <div><span className="text-[#666]">Start (UTC):</span> {formatUnixSecondsUtc(selectedOngoingMatch.endTs - selectedOngoingMatch.duration)}</div>
+                    <div><span className="text-[#666]">Duration:</span> {formatDurationFromSeconds(selectedOngoingMatch.duration)}</div>
+                    <div>
+                      <span className="text-[#666]">Countdown:</span> {getCurrentMatchCountdown(selectedOngoingMatch)}
+                    </div>
                   </div>
                 </div>
                 {canConcludeSelectedOngoingMatch ? (
@@ -835,7 +1083,7 @@ export default function MyMatchesPage() {
                     <button
                       type="button"
                       className="border border-[#8f83ff] bg-[#ece9ff] px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#433d98] hover:bg-[#e3deff] disabled:cursor-not-allowed disabled:border-[#bdb8e6] disabled:bg-[#efedf8] disabled:text-[#7a77a2]"
-                      onClick={() => handleConcludeMatch(selectedOngoingMatch.id)}
+                      onClick={() => openResolveModalForMatch(selectedOngoingMatch)}
                       disabled={isConcludingSelectedMatch}
                     >
                       {isConcludingSelectedMatch ? 'Concluding...' : 'Conclude Match'}
@@ -904,6 +1152,9 @@ export default function MyMatchesPage() {
                             <div className="mt-1 font-mono text-xl font-black text-[#2f2f2f]">
                               {formatTokenUsdValue(portfolioTotalsByRole?.you ?? null)}
                             </div>
+                            <div className="mt-1 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-[#5a4fb0]">
+                              {formatVsStartPercent(portfolioTotalsByRole?.you ?? null)}
+                            </div>
                           </div>
                           <div
                             className={`border px-3 py-3 ${
@@ -917,6 +1168,9 @@ export default function MyMatchesPage() {
                             </div>
                             <div className="mt-1 font-mono text-xl font-black text-[#2f2f2f]">
                               {formatTokenUsdValue(portfolioTotalsByRole?.other ?? null)}
+                            </div>
+                            <div className="mt-1 font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-[#5d5d5d]">
+                              {formatVsStartPercent(portfolioTotalsByRole?.other ?? null)}
                             </div>
                           </div>
                         </div>
@@ -1026,6 +1280,7 @@ export default function MyMatchesPage() {
                       hyperDuelContractAddress={hyperDuelContractAddress}
                       showMatchDetails={false}
                       disableSwap={canConcludeSelectedOngoingMatch}
+                      onSwapConfirmed={handleSwapConfirmed}
                     />
                   </div>
                 </div>
@@ -1176,8 +1431,25 @@ export default function MyMatchesPage() {
         buyInTokenSymbol={buyInTokenSymbol}
         buyInTokenDecimals={buyInTokenDecimals}
         hyperDuelContractAddress={hyperDuelContractAddress}
-        onJoined={() => setMatchesReloadNonce((value) => value + 1)}
+        onJoined={() => {
+          setMatchesReloadNonce((value) => value + 1);
+        }}
         onClose={() => setSelectedReservedMatchToJoin(null)}
+      />
+
+      <ResolveMatchModal
+        isOpen={Boolean(selectedMatchToResolve)}
+        matchId={selectedMatchToResolve?.matchId ?? 0n}
+        playerA={selectedMatchToResolve?.playerA ?? zeroAddress}
+        playerB={selectedMatchToResolve?.playerB ?? zeroAddress}
+        predictedWinner={selectedMatchToResolve?.predictedWinner ?? zeroAddress}
+        buyIn={selectedMatchToResolve?.buyIn ?? 0n}
+        buyInTokenSymbol={buyInTokenSymbol}
+        buyInTokenDecimals={buyInTokenDecimals}
+        platformFeeBps={platformFeeBps}
+        isConfirming={isResolvingFromModal}
+        onConfirm={confirmResolveMatch}
+        onClose={() => setSelectedMatchToResolve(null)}
       />
 
       {activeSection === 'history' ? (

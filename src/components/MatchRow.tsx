@@ -39,6 +39,7 @@ export function MatchRow({
     : canJoin
       ? 'border-[#8f83ff] bg-[#ece9ff] text-[#433d98] hover:bg-[#e3deff]'
       : 'cursor-not-allowed border-[#c8c8c8] bg-[#f1f1f1] text-[#9a9a9a]';
+  const showConcludeInCountdown = !hideCountdownAndWinner && hideAction && canConclude;
 
   return (
     <div
@@ -50,7 +51,22 @@ export function MatchRow({
       <div className="whitespace-nowrap">{match.buyIn}</div>
       <div className="whitespace-nowrap">{match.prize ?? '-'}</div>
       <div>{match.duration}</div>
-      {!hideCountdownAndWinner ? <div className="tabular-nums">{match.countdown ?? '-'}</div> : null}
+      {!hideCountdownAndWinner ? (
+        <div className="tabular-nums">
+          {showConcludeInCountdown ? (
+            <button
+              type="button"
+              className="w-full border border-[#8f83ff] bg-[#ece9ff] px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#433d98] hover:bg-[#e3deff] md:w-auto"
+              onClick={onConclude}
+              disabled={Boolean(match.isConcluding)}
+            >
+              {match.isConcluding ? 'Concluding...' : 'Conclude'}
+            </button>
+          ) : (
+            match.countdown ?? '-'
+          )}
+        </div>
+      ) : null}
       <div>
         {match.playersTooltip ? (
           <span title="" className="group relative inline-block cursor-help">

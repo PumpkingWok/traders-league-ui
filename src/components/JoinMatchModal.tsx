@@ -3,7 +3,10 @@ import { formatUnits, type Address } from 'viem';
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { erc20AllowanceAbi, hyperDuelAbi } from '../config/abis';
 import { compactNumber } from '../utils/format';
+import { emitBalanceRefresh } from '../utils/appEvents';
 import { type Match } from '../types/match';
+
+const platformFeeBase = 10_000n;
 
 export function JoinMatchModal({
   isOpen,
@@ -21,7 +24,7 @@ export function JoinMatchModal({
   buyInTokenSymbol: string;
   buyInTokenDecimals: number;
   hyperDuelContractAddress?: Address;
-  onJoined: () => void;
+  onJoined: (matchId: bigint) => void;
   onClose: () => void;
 }) {
   const { isConnected, address } = useAccount();
@@ -58,6 +61,14 @@ export function JoinMatchModal({
       enabled: Boolean(isOpen && isConnected && address && buyInTokenAddress && hyperDuelContractAddress && match),
     },
   });
+  const { data: platformFeeData } = useReadContract({
+    address: hyperDuelContractAddress,
+    abi: hyperDuelAbi,
+    functionName: 'platformFee',
+    query: {
+      enabled: Boolean(hyperDuelContractAddress),
+    },
+  });
 
   useEffect(() => {
     if (!isApproveConfirmed) return;
@@ -65,16 +76,20 @@ export function JoinMatchModal({
   }, [isApproveConfirmed, refetchAllowance]);
 
   useEffect(() => {
-    if (isJoinConfirmed) {
-      onJoined();
-      onClose();
-    }
-  }, [isJoinConfirmed, onClose, onJoined]);
+    if (!isJoinConfirmed || !match) return;
+    emitBalanceRefresh();
+    onJoined(match.matchId);
+    onClose();
+  }, [isJoinConfirmed, match, onClose, onJoined]);
 
   if (!isOpen || !match) return null;
 
   const allowanceAmount = allowanceData ? BigInt(allowanceData as bigint) : 0n;
   const hasEnoughAllowance = allowanceAmount >= matchBuyIn;
+  const platformFeeBps = (platformFeeData as bigint | undefined) ?? 0n;
+  const grossPrize = matchBuyIn * 2n;
+  const platformFeeAmount = (grossPrize * platformFeeBps) / platformFeeBase;
+  const netPrize = grossPrize - platformFeeAmount;
 
   const canApprove =
     isConnected &&
@@ -134,8 +149,15 @@ export function JoinMatchModal({
             <div className="border border-[#b9b9b9] bg-[#f9f9f9] px-4 py-4 font-mono text-sm font-bold text-[#424242]">
               <div><span className="text-[#6c6c6c]">Assets:</span> {match.assets}</div>
               <div className="mt-2"><span className="text-[#6c6c6c]">Buy-in:</span> {compactNumber(formatUnits(matchBuyIn, buyInTokenDecimals))} {buyInTokenSymbol}</div>
+              <div className="mt-2">
+                <span className="text-[#6c6c6c]">Prize (Player):</span>{' '}
+                {compactNumber(formatUnits(netPrize, buyInTokenDecimals))} {buyInTokenSymbol}
+              </div>
+              <div className="mt-2">
+                <span className="text-[#6c6c6c]">Platform Fee:</span>{' '}
+                {compactNumber(formatUnits(platformFeeAmount, buyInTokenDecimals))} {buyInTokenSymbol}
+              </div>
               <div className="mt-2"><span className="text-[#6c6c6c]">Duration:</span> {match.duration}</div>
-              <div className="mt-2"><span className="text-[#6c6c6c]">Status:</span> {match.status}</div>
             </div>
 
             <div className="border border-[#b9b9b9] bg-[#f1f1f1] px-4 py-3 font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#5e5e5e]">

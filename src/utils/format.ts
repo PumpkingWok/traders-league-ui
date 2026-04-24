@@ -32,9 +32,18 @@ export function formatDurationFromSeconds(durationInSeconds: bigint) {
   return `${durationInSeconds.toString()}s`;
 }
 
-export function compactNumber(value: string) {
+export function compactNumber(value: string, maxFractionDigits?: number) {
   if (!value.includes('.')) return value;
-  return value.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+
+  const [wholePart, fractionPart] = value.split('.');
+  const trimmedFraction = fractionPart.replace(/0+$/, '');
+  if (!trimmedFraction) return wholePart;
+
+  if (maxFractionDigits === undefined) return `${wholePart}.${trimmedFraction}`;
+  if (maxFractionDigits <= 0) return wholePart;
+
+  const limitedFraction = trimmedFraction.slice(0, maxFractionDigits).replace(/0+$/, '');
+  return limitedFraction ? `${wholePart}.${limitedFraction}` : wholePart;
 }
 
 export function formatAddress(address: Address) {
@@ -52,4 +61,15 @@ export function formatSpotPriceLabel(value: bigint | null | undefined, decimals:
   const decimalText = fractionText ? `${whole.toString()}.${fractionText}` : whole.toString();
 
   return `$${decimalText}`;
+}
+
+export function formatUnixSecondsUtc(timestampSeconds: bigint | number | null | undefined) {
+  if (timestampSeconds === null || timestampSeconds === undefined) return '-';
+  const seconds = typeof timestampSeconds === 'bigint' ? Number(timestampSeconds) : timestampSeconds;
+  if (!Number.isFinite(seconds)) return '-';
+
+  const date = new Date(Math.trunc(seconds) * 1000);
+  if (Number.isNaN(date.getTime())) return '-';
+
+  return `${date.toISOString().replace('T', ' ').replace('.000Z', '')} UTC`;
 }
