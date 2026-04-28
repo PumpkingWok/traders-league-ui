@@ -243,7 +243,7 @@ function Footer() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <a
-                    href="https://t.me/tradersleague"
+                    href="https://t.me/tradersleaguedev"
                     target="_blank"
                     rel="noopener noreferrer"
                     className={footerItemClass}
@@ -252,7 +252,7 @@ function Footer() {
                     Telegram
                   </a>
                   <a
-                    href="https://x.com/tradersleague"
+                    href="https://x.com/TradersLeagueX"
                     target="_blank"
                     rel="noopener noreferrer"
                     className={footerItemClass}

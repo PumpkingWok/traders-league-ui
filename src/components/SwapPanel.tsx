@@ -7,12 +7,12 @@ import {
   tokenSymbolByLabel,
   zeroAddress,
 } from '../config/contracts';
+import { getGoldskySubgraphUrl } from '../config/subgraph';
 import { compactNumber, formatAddress, formatUnixSecondsUtc } from '../utils/format';
 
 const virtualAssetDecimals = 18;
 const platformFeeBase = 10_000n;
 const usdVirtualPriceScale = 10_000n;
-const subgraphSwapHistoryUrl = (__GOLDSKY_SUBGRAPH_URL__ ?? '').trim();
 const maxSubgraphSwapRows = 300;
 
 type SwapDraftLeg = {
@@ -200,6 +200,7 @@ export function SwapPanel({
 }) {
   const { isConnected, address } = useAccount();
   const chainId = useChainId();
+  const subgraphSwapHistoryUrl = getGoldskySubgraphUrl(chainId);
   const publicClient = usePublicClient();
   const selectableTokens = useMemo(() => [0, ...tokensAllowed], [tokensAllowed]);
   const [swapLegs, setSwapLegs] = useState<SwapDraftLeg[]>([
@@ -617,6 +618,17 @@ export function SwapPanel({
 
   const onSwap = () => {
     if (!canSwap || !hyperDuelContractAddress) return;
+
+    if (simulationLegs.length === 1) {
+      const [singleLeg] = simulationLegs;
+      writeSwap({
+        address: hyperDuelContractAddress,
+        abi: hyperDuelAbi,
+        functionName: 'swap',
+        args: [matchId, singleLeg.tokenIn, singleLeg.tokenOut, singleLeg.parsedAmountIn as bigint],
+      });
+      return;
+    }
 
     const tokenIns = simulationLegs.map((leg) => leg.tokenIn);
     const tokenOuts = simulationLegs.map((leg) => leg.tokenOut);

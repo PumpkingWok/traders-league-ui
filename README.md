@@ -44,4 +44,8 @@ yarn build
 Create a `.env` file from `.env.example` and set:
 
 - `WALLETCONNECT_PROJECT_ID` with your WalletConnect Cloud project id
-- `GOLDSKY_SUBGRAPH_URL` with your deployed Goldsky GraphQL endpoint (used for swap history and matches list reads, with onchain fallback)
+- `GOLDSKY_SUBGRAPH_URL` as optional fallback endpoint
+- `GOLDSKY_SUBGRAPH_URL_HYPEREVM_TESTNET` for Hyperliquid testnet subgraph
+- `GOLDSKY_SUBGRAPH_URL_HYPEREVM_MAINNET` for Hyperliquid mainnet subgraph
+
+The app will resolve Goldsky endpoint by connected `chainId` first (`998` / `999`), and fallback to `GOLDSKY_SUBGRAPH_URL` when no chain-specific value is set.

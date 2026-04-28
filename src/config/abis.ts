@@ -41,6 +41,18 @@ export const hyperDuelAbi = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: '_matchId', type: 'uint256' },
+      { name: '_tokenIn', type: 'uint32' },
+      { name: '_tokenOut', type: 'uint32' },
+      { name: '_amountIn', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'swap',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: '_matchId', type: 'uint256' },
       { name: 'tokensIn', type: 'uint32[]' },
       { name: 'tokensOut', type: 'uint32[]' },
       { name: 'amountsIn', type: 'uint256[]' },

@@ -28,8 +28,8 @@ export const tokenSymbolByLabel: Record<string, string> = {
 };
 
 export const hyperDuelContractByChainId: Partial<Record<number, Address>> = {
-  [hyperliquidEvmChain.id]: '0x99a93684f569026d397f65eff0807f5347add051',
-  [hyperliquidTestnetChain.id]: '0xd26aD97bb86b58F2B12D2cc6E4f690B6cAB91F94',
+  [hyperliquidEvmChain.id]: '0x6D3a18fD3ED6d055648D022CdeC46F559B2C8c82',
+  [hyperliquidTestnetChain.id]: '0x16DFdB24491A6Fae4F3145707A63b31FBDB5931F',
 };
 
 export const tokenIndexByChainId: Partial<Record<number, Record<string, number>>> = {

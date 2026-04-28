@@ -3,6 +3,7 @@ import { formatUnits, type Address } from 'viem';
 import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenIndexByChainId, zeroAddress } from '../config/contracts';
+import { getGoldskySubgraphUrl } from '../config/subgraph';
 import { compactNumber, formatAddress, formatDurationFromSeconds } from '../utils/format';
 import { emitBalanceRefresh } from '../utils/appEvents';
 import { MatchRow } from '../components/MatchRow';
@@ -28,7 +29,6 @@ function formatMatchCountdown(remainingSeconds: bigint): string {
 }
 
 const platformFeeBase = 10_000n;
-const subgraphMatchesUrl = (__GOLDSKY_SUBGRAPH_URL__ ?? '').trim();
 
 type ContractMatchRecord = {
   id: bigint;
@@ -188,6 +188,7 @@ export default function MatchesPage({
 }) {
   const { address } = useAccount();
   const chainId = useChainId();
+  const subgraphMatchesUrl = getGoldskySubgraphUrl(chainId);
   const publicClient = usePublicClient();
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
   const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};

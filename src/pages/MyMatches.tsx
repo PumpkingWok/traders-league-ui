@@ -11,6 +11,7 @@ import {
 } from 'wagmi';
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenAvatarUrlByLabel, tokenIndexByChainId, zeroAddress } from '../config/contracts';
+import { getGoldskySubgraphUrl } from '../config/subgraph';
 import { compactNumber, formatAddress, formatDurationFromSeconds, formatSpotPriceLabel, formatUnixSecondsUtc } from '../utils/format';
 import { emitBalanceRefresh } from '../utils/appEvents';
 import { SwapPanel } from '../components/SwapPanel';
@@ -19,7 +20,6 @@ import { ResolveMatchModal } from '../components/ResolveMatchModal';
 import { type Match } from '../types/match';
 
 const platformFeeBase = 10_000n;
-const subgraphMatchesUrl = (__GOLDSKY_SUBGRAPH_URL__ ?? '').trim();
 const startingVirtualUsd = 100_000n * 10n ** 18n;
 
 type BaseMatchRecord = {
@@ -184,6 +184,7 @@ function formatMatchCountdown(remainingSeconds: bigint): string {
 export default function MyMatchesPage({ refreshNonce }: { refreshNonce: number }) {
   const { isConnected, address } = useAccount();
   const chainId = useChainId();
+  const subgraphMatchesUrl = getGoldskySubgraphUrl(chainId);
   const publicClient = usePublicClient();
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
   const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};

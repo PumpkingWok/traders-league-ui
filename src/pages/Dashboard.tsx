@@ -3,12 +3,12 @@ import { formatUnits, type Address } from 'viem';
 import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts } from 'wagmi';
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenIndexByChainId, zeroAddress } from '../config/contracts';
+import { getGoldskySubgraphUrl } from '../config/subgraph';
 import { compactNumber, formatAddress, formatDurationFromSeconds } from '../utils/format';
 import { JoinMatchModal } from '../components/JoinMatchModal';
 import { type Match } from '../types/match';
 
 const platformFeeBase = 10_000n;
-const subgraphMatchesUrl = (__GOLDSKY_SUBGRAPH_URL__ ?? '').trim();
 
 type DashboardMatch = {
   id: bigint;
@@ -145,6 +145,7 @@ function formatPercent(value: number) {
 export default function DashboardPage() {
   const { isConnected, address } = useAccount();
   const chainId = useChainId();
+  const subgraphMatchesUrl = getGoldskySubgraphUrl(chainId);
   const publicClient = usePublicClient();
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
   const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};
