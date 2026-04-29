@@ -10,9 +10,12 @@ export function formatDuration(hours: number) {
 }
 
 export function formatDurationFromSeconds(durationInSeconds: bigint) {
+  const oneMinute = 60n;
   const oneHour = 3600n;
   const oneDay = 86400n;
   const oneWeek = 604800n;
+
+  if (durationInSeconds <= 0n) return '0s';
 
   if (durationInSeconds >= oneWeek && durationInSeconds % oneWeek === 0n) {
     const weeks = durationInSeconds / oneWeek;
@@ -29,7 +32,23 @@ export function formatDurationFromSeconds(durationInSeconds: bigint) {
     return `${hours.toString()} Hour${hours === 1n ? '' : 's'}`;
   }
 
-  return `${durationInSeconds.toString()}s`;
+  if (durationInSeconds >= oneMinute && durationInSeconds < oneHour && durationInSeconds % oneMinute === 0n) {
+    const minutes = durationInSeconds / oneMinute;
+    return `${minutes.toString()} Min${minutes === 1n ? '' : 's'}`;
+  }
+
+  const days = durationInSeconds / oneDay;
+  const hours = (durationInSeconds % oneDay) / oneHour;
+  const minutes = (durationInSeconds % oneHour) / oneMinute;
+  const seconds = durationInSeconds % oneMinute;
+  const parts: string[] = [];
+
+  if (days > 0n) parts.push(`${days.toString()}d`);
+  if (hours > 0n) parts.push(`${hours.toString()}h`);
+  if (minutes > 0n) parts.push(`${minutes.toString()}m`);
+  if (seconds > 0n) parts.push(`${seconds.toString()}s`);
+
+  return parts.slice(0, 2).join(' ');
 }
 
 export function compactNumber(value: string, maxFractionDigits?: number) {

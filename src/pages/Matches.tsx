@@ -203,6 +203,10 @@ export default function MatchesPage({
     predictedWinner: Address;
     buyIn: bigint;
   } | null>(null);
+  const [selectedMatchToUnjoin, setSelectedMatchToUnjoin] = useState<{
+    matchId: bigint;
+    buyIn: bigint;
+  } | null>(null);
 
   const [matchFilter, setMatchFilter] = useState<'to-start' | 'current' | 'finish' | 'all'>('to-start');
   const [sortBy, setSortBy] = useState<'duration' | 'buyIn'>('duration');
@@ -272,7 +276,7 @@ export default function MatchesPage({
   const { data: platformFeeData } = useReadContract({
     address: hyperDuelContractAddress,
     abi: hyperDuelAbi,
-    functionName: 'platformFee',
+    functionName: 'platformFeePercentage',
     query: {
       enabled: Boolean(hyperDuelContractAddress),
     },
@@ -318,6 +322,7 @@ export default function MatchesPage({
   useEffect(() => {
     if (!isUnjoinConfirmed) return;
     setUnjoiningMatchId(null);
+    setSelectedMatchToUnjoin(null);
     setMatchesReloadNonce((value) => value + 1);
     emitBalanceRefresh();
   }, [isUnjoinConfirmed]);
@@ -325,6 +330,7 @@ export default function MatchesPage({
   useEffect(() => {
     if (!unjoinMatchError) return;
     setUnjoiningMatchId(null);
+    setSelectedMatchToUnjoin(null);
     setMatchesError(unjoinMatchError.message);
   }, [unjoinMatchError]);
 
@@ -656,6 +662,13 @@ export default function MatchesPage({
     });
   };
 
+  const confirmUnjoinMatch = () => {
+    if (!selectedMatchToUnjoin) return;
+    const matchId = selectedMatchToUnjoin.matchId;
+    setSelectedMatchToUnjoin(null);
+    handleUnjoinMatch(matchId);
+  };
+
   const sortButtonClass = (active: boolean) =>
     `border px-3 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] ${
       active
@@ -802,7 +815,12 @@ export default function MatchesPage({
                       hideAction={hideAction}
                       onConclude={() => openResolveModal(match)}
                       onJoin={() => setSelectedMatchToJoin(match)}
-                      onUnjoin={() => handleUnjoinMatch(match.matchId)}
+                      onUnjoin={() =>
+                        setSelectedMatchToUnjoin({
+                          matchId: match.matchId,
+                          buyIn: match.buyInRaw,
+                        })
+                      }
                     />
                   ))
                 )}
@@ -851,6 +869,59 @@ export default function MatchesPage({
         onConfirm={confirmResolveMatch}
         onClose={() => setSelectedMatchToResolve(null)}
       />
+
+      {selectedMatchToUnjoin ? (
+        <div className="fixed inset-0 z-40 overflow-y-auto bg-black/30 px-4 py-8">
+          <div className="flex min-h-full items-start justify-center">
+            <div className="w-full max-w-lg border border-[#ababab] bg-[#f5f5f5] shadow-[0_12px_30px_rgba(0,0,0,0.18)]">
+              <div className="flex items-center justify-between gap-4 border-b border-[#bdbdbd] bg-[#ebebeb] px-4 py-3 md:px-5">
+                <div>
+                  <div className="font-mono text-2xl font-black uppercase tracking-[0.08em] text-[#2f2f2f]">Unjoin Match</div>
+                  <div className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#6a6a6a]">
+                    #{selectedMatchToUnjoin.matchId.toString()}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="border border-[#b9b9b9] bg-[#f7f7f7] px-3 py-1 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec]"
+                  onClick={() => setSelectedMatchToUnjoin(null)}
+                  disabled={isUnjoinPending || isUnjoinConfirming}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="space-y-4 p-4 md:p-5">
+                <div className="border border-[#b9b9b9] bg-[#f9f9f9] px-4 py-4 font-mono text-sm font-bold text-[#424242]">
+                  <div>You will receive your buy-in amount back after unjoining.</div>
+                  <div className="mt-2">
+                    Refund amount: {compactNumber(formatUnits(selectedMatchToUnjoin.buyIn, buyInTokenDecimals))} {buyInTokenSymbol}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    className="border border-[#b9b9b9] bg-[#f7f7f7] px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#4f4f4f] hover:bg-[#ececec]"
+                    onClick={() => setSelectedMatchToUnjoin(null)}
+                    disabled={isUnjoinPending || isUnjoinConfirming}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="border border-[#8f83ff] bg-[#ece9ff] px-4 py-2 font-mono text-xs font-black uppercase tracking-[0.08em] text-[#433d98] hover:bg-[#e3deff] disabled:cursor-not-allowed disabled:border-[#bdb8e6] disabled:bg-[#efedf8] disabled:text-[#7a77a2]"
+                    onClick={confirmUnjoinMatch}
+                    disabled={isUnjoinPending || isUnjoinConfirming}
+                  >
+                    {isUnjoinPending || isUnjoinConfirming ? 'Unjoining...' : 'Confirm Unjoin'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

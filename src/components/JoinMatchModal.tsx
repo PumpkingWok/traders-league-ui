@@ -64,7 +64,7 @@ export function JoinMatchModal({
   const { data: platformFeeData } = useReadContract({
     address: hyperDuelContractAddress,
     abi: hyperDuelAbi,
-    functionName: 'platformFee',
+    functionName: 'platformFeePercentage',
     query: {
       enabled: Boolean(hyperDuelContractAddress),
     },
@@ -150,7 +150,7 @@ export function JoinMatchModal({
               <div><span className="text-[#6c6c6c]">Assets:</span> {match.assets}</div>
               <div className="mt-2"><span className="text-[#6c6c6c]">Buy-in:</span> {compactNumber(formatUnits(matchBuyIn, buyInTokenDecimals))} {buyInTokenSymbol}</div>
               <div className="mt-2">
-                <span className="text-[#6c6c6c]">Prize (Player):</span>{' '}
+                <span className="text-[#6c6c6c]">Prize:</span>{' '}
                 {compactNumber(formatUnits(netPrize, buyInTokenDecimals))} {buyInTokenSymbol}
               </div>
               <div className="mt-2">

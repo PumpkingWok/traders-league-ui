@@ -236,13 +236,13 @@ export function SwapPanel({
   const { data: platformFeeData } = useReadContract({
     address: hyperDuelContractAddress,
     abi: hyperDuelAbi,
-    functionName: 'platformFee',
+    functionName: 'platformFeePercentage',
     query: {
       enabled: Boolean(hyperDuelContractAddress),
     },
   });
 
-  const { data: tokenPricesData } = useReadContracts({
+  const { data: tokenPricesData, refetch: refetchTokenPrices } = useReadContracts({
     contracts:
       hyperDuelContractAddress && tokensAllowed.length > 0
         ? tokensAllowed.map((tokenId) => ({
@@ -257,22 +257,22 @@ export function SwapPanel({
       enabled: Boolean(hyperDuelContractAddress && tokensAllowed.length > 0),
     },
   });
-  const { data: tokenPriceDecimalsData } = useReadContracts({
+  const { data: tokenPriceDecimalsData, refetch: refetchTokenPriceDecimals } = useReadContracts({
     contracts:
       hyperDuelContractAddress && tokensAllowed.length > 0
         ? tokensAllowed.map((tokenId) => ({
             address: hyperDuelContractAddress,
             chainId,
             abi: hyperDuelAbi,
-            functionName: 'tradingTokens',
-            args: [tokenId],
+            functionName: 'matchTokensDecimals',
+            args: [matchId, tokenId],
           }))
         : [],
     query: {
       enabled: Boolean(hyperDuelContractAddress && tokensAllowed.length > 0),
     },
   });
-  const { data: virtualBalancesData } = useReadContracts({
+  const { data: virtualBalancesData, refetch: refetchVirtualBalances } = useReadContracts({
     contracts:
       hyperDuelContractAddress && address && selectableTokens.length > 0
         ? selectableTokens.map((tokenId) => ({
@@ -469,6 +469,14 @@ export function SwapPanel({
     if (handledConfirmedSwapHashRef.current === swapHash) return;
 
     handledConfirmedSwapHashRef.current = swapHash;
+    void Promise.allSettled([refetchTokenPrices(), refetchTokenPriceDecimals(), refetchVirtualBalances()]);
+    void loadMatchDetails();
+    void loadSwapHistory();
+    const retryTimerId = window.setTimeout(() => {
+      void loadMatchDetails();
+      void loadSwapHistory();
+      void Promise.allSettled([refetchTokenPrices(), refetchTokenPriceDecimals(), refetchVirtualBalances()]);
+    }, 2500);
     setOpenPickerId(null);
     setExpandedStepById({});
     setSwapLegs([
@@ -481,7 +489,20 @@ export function SwapPanel({
       },
     ]);
     onSwapConfirmed?.();
-  }, [isSwapConfirmed, onSwapConfirmed, selectableTokens, swapHash]);
+    return () => {
+      window.clearTimeout(retryTimerId);
+    };
+  }, [
+    isSwapConfirmed,
+    loadMatchDetails,
+    loadSwapHistory,
+    onSwapConfirmed,
+    refetchTokenPriceDecimals,
+    refetchTokenPrices,
+    refetchVirtualBalances,
+    selectableTokens,
+    swapHash,
+  ]);
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node | null;
@@ -1131,8 +1152,6 @@ export function SwapPanel({
 
       {!isSwapLocked ? (
         <>
-          {swapHash ? <div className="break-all font-mono text-xs font-bold uppercase tracking-[0.08em] text-[#447056]">Swap Tx: {swapHash}</div> : null}
-
           <div className="mt-2 text-right font-mono text-[11px] font-bold text-[#666]">
             {executionHintLabel}
           </div>
@@ -1187,12 +1206,12 @@ export function SwapPanel({
                 <div className="mt-1 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#666]">
                   Rate: {formatSwapRateLabel(row.amountIn, row.amountOut, row.tokenIn, row.tokenOut)}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#666]">
-                  <span>Date (UTC): {formatUnixSecondsUtc(row.blockTimestamp)}</span>
-                  <span>
+                <div className="mt-1 space-y-1 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#666]">
+                  <div>Date (UTC): {formatUnixSecondsUtc(row.blockTimestamp)}</div>
+                  <div>
                     Player:{' '}
                     {connectedAddress && row.player.toLowerCase() === connectedAddress ? 'YOU' : formatAddress(row.player)}
-                  </span>
+                  </div>
                 </div>
               </div>
             ))}

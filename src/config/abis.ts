@@ -75,7 +75,35 @@ export const hyperDuelAbi = [
   },
   {
     type: 'function',
-    name: 'platformFee',
+    name: 'platformFeePercentage',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'minBuyIn',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'maxBuyIn',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'minDuration',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'maxDuration',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
@@ -146,9 +174,19 @@ export const hyperDuelAbi = [
   },
   {
     type: 'function',
-    name: 'tradingTokens',
+    name: 'tradingTokensDecimals',
     stateMutability: 'view',
     inputs: [{ name: '', type: 'uint32' }],
+    outputs: [{ name: '', type: 'uint8' }],
+  },
+  {
+    type: 'function',
+    name: 'matchTokensDecimals',
+    stateMutability: 'view',
+    inputs: [
+      { name: '', type: 'uint256' },
+      { name: '', type: 'uint32' },
+    ],
     outputs: [{ name: '', type: 'uint8' }],
   },
 ] as const;

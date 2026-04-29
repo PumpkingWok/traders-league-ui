@@ -8,7 +8,6 @@ import {
 import {
   coinbaseWallet,
   injectedWallet,
-  metaMaskWallet,
   rabbyWallet,
   walletConnectWallet,
 } from '@rainbow-me/rainbowkit/wallets';
@@ -74,11 +73,11 @@ const config = getDefaultConfig({
   wallets: [
     {
       groupName: 'Popular',
-      wallets: [metaMaskWallet, rabbyWallet, coinbaseWallet],
+      wallets: [injectedWallet, rabbyWallet, coinbaseWallet],
     },
     {
       groupName: 'More options',
-      wallets: [injectedWallet, walletConnectWallet],
+      wallets: [walletConnectWallet],
     },
   ],
   projectId: walletConnectProjectId,

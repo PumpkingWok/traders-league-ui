@@ -255,7 +255,7 @@ export default function MyMatchesPage({ refreshNonce }: { refreshNonce: number }
   const { data: platformFeeData } = useReadContract({
     address: hyperDuelContractAddress,
     abi: hyperDuelAbi,
-    functionName: 'platformFee',
+    functionName: 'platformFeePercentage',
     query: {
       enabled: Boolean(hyperDuelContractAddress),
     },
@@ -521,11 +521,6 @@ export default function MyMatchesPage({ refreshNonce }: { refreshNonce: number }
     if (!unjoinMatchError) return;
     setUnjoiningMatchId(null);
   }, [unjoinMatchError]);
-  const handleSwapConfirmed = useCallback(() => {
-    setMatchesReloadNonce((previous) => previous + 1);
-    emitBalanceRefresh();
-  }, []);
-
   useEffect(() => {
     if (!isMatchSelectorOpen) return;
 
@@ -554,7 +549,11 @@ export default function MyMatchesPage({ refreshNonce }: { refreshNonce: number }
     () => (selectedOngoingMatch ? [0, ...selectedOngoingMatch.tokensAllowed] : []),
     [selectedOngoingMatch],
   );
-  const { data: playerAPortfolioBalancesData, isLoading: isLoadingPlayerAPortfolio } = useReadContracts({
+  const {
+    data: playerAPortfolioBalancesData,
+    isLoading: isLoadingPlayerAPortfolio,
+    refetch: refetchPlayerAPortfolioBalances,
+  } = useReadContracts({
     contracts:
       hyperDuelContractAddress && selectedOngoingMatch
         ? portfolioTokenIds.map((tokenId) => ({
@@ -568,7 +567,11 @@ export default function MyMatchesPage({ refreshNonce }: { refreshNonce: number }
       enabled: Boolean(hyperDuelContractAddress && selectedOngoingMatch),
     },
   });
-  const { data: playerBPortfolioBalancesData, isLoading: isLoadingPlayerBPortfolio } = useReadContracts({
+  const {
+    data: playerBPortfolioBalancesData,
+    isLoading: isLoadingPlayerBPortfolio,
+    refetch: refetchPlayerBPortfolioBalances,
+  } = useReadContracts({
     contracts:
       hyperDuelContractAddress && selectedOngoingMatch
         ? portfolioTokenIds.map((tokenId) => ({
@@ -582,7 +585,11 @@ export default function MyMatchesPage({ refreshNonce }: { refreshNonce: number }
       enabled: Boolean(hyperDuelContractAddress && selectedOngoingMatch),
     },
   });
-  const { data: portfolioTokenPricesData, isLoading: isLoadingPortfolioPrices } = useReadContracts({
+  const {
+    data: portfolioTokenPricesData,
+    isLoading: isLoadingPortfolioPrices,
+    refetch: refetchPortfolioTokenPrices,
+  } = useReadContracts({
     contracts:
       hyperDuelContractAddress && selectedOngoingMatch
         ? selectedOngoingMatch.tokensAllowed.map((tokenId) => ({
@@ -596,20 +603,39 @@ export default function MyMatchesPage({ refreshNonce }: { refreshNonce: number }
       enabled: Boolean(hyperDuelContractAddress && selectedOngoingMatch),
     },
   });
-  const { data: portfolioTokenPriceDecimalsData, isLoading: isLoadingPortfolioPriceDecimals } = useReadContracts({
+  const {
+    data: portfolioTokenPriceDecimalsData,
+    isLoading: isLoadingPortfolioPriceDecimals,
+    refetch: refetchPortfolioTokenPriceDecimals,
+  } = useReadContracts({
     contracts:
       hyperDuelContractAddress && selectedOngoingMatch
         ? selectedOngoingMatch.tokensAllowed.map((tokenId) => ({
             address: hyperDuelContractAddress,
             abi: hyperDuelAbi,
-            functionName: 'tradingTokens',
-            args: [tokenId],
+            functionName: 'matchTokensDecimals',
+            args: [selectedOngoingMatch.id, tokenId],
           }))
         : [],
     query: {
       enabled: Boolean(hyperDuelContractAddress && selectedOngoingMatch),
     },
   });
+  const handleSwapConfirmed = useCallback(() => {
+    void Promise.allSettled([
+      refetchPlayerAPortfolioBalances(),
+      refetchPlayerBPortfolioBalances(),
+      refetchPortfolioTokenPrices(),
+      refetchPortfolioTokenPriceDecimals(),
+    ]);
+    emitBalanceRefresh();
+  }, [
+    refetchPlayerAPortfolioBalances,
+    refetchPlayerBPortfolioBalances,
+    refetchPortfolioTokenPriceDecimals,
+    refetchPortfolioTokenPrices,
+  ]);
+
   const formatCurrentUsd = (value: bigint | null) => {
     if (value === null) return '...';
     const numeric = Number(formatUnits(value, 18));

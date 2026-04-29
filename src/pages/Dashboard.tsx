@@ -197,7 +197,7 @@ export default function DashboardPage() {
   const { data: platformFeeData } = useReadContract({
     address: hyperDuelContractAddress,
     abi: hyperDuelAbi,
-    functionName: 'platformFee',
+    functionName: 'platformFeePercentage',
     query: {
       enabled: Boolean(hyperDuelContractAddress),
     },

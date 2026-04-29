@@ -18,7 +18,7 @@ import {
   tokenAvatarUrlByLabel,
   tokenIndexByChainId,
 } from './config/contracts';
-import { compactNumber, formatDuration } from './utils/format';
+import { compactNumber, formatDurationFromSeconds } from './utils/format';
 import { type MatchCreationMode } from './types/match';
 import { CreateMatchModal } from './components/CreateMatchModal';
 import {
@@ -42,13 +42,13 @@ export default function App() {
   const chainId = useChainId();
   const [isCreateMatchModalOpen, setIsCreateMatchModalOpen] = useState(false);
   const [selectedBuyIn, setSelectedBuyIn] = useState(25);
-  const [selectedDurationHours, setSelectedDurationHours] = useState(4);
+  const [selectedDurationSeconds, setSelectedDurationSeconds] = useState(4 * 60 * 60);
   const [selectedAssets, setSelectedAssets] = useState<string[]>(['BTC', 'ETH']);
   const [matchCreationMode, setMatchCreationMode] = useState<MatchCreationMode>('creator-joins');
   const [reservedOpponentAddress, setReservedOpponentAddress] = useState('');
   const [matchesRefreshNonce, setMatchesRefreshNonce] = useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>('light');
-  const selectedDuration = formatDuration(selectedDurationHours);
+  const selectedDuration = formatDurationFromSeconds(BigInt(selectedDurationSeconds));
   const hyperDuelContractAddress = hyperDuelContractByChainId[chainId];
   const tokenIndexMap = tokenIndexByChainId[chainId] ?? {};
   const availableAssets = useMemo(() => {
@@ -208,8 +208,8 @@ export default function App() {
         reservedOpponentAddress={reservedOpponentAddress}
         onAssetsChange={toggleAsset}
         onBuyInChange={setSelectedBuyIn}
-        selectedDurationHours={selectedDurationHours}
-        onDurationChange={setSelectedDurationHours}
+        selectedDurationSeconds={selectedDurationSeconds}
+        onDurationChange={setSelectedDurationSeconds}
         onMatchCreationModeChange={setMatchCreationMode}
         onReservedOpponentAddressChange={setReservedOpponentAddress}
         onCreated={() => setMatchesRefreshNonce((value) => value + 1)}

@@ -1,26 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
-import { parseUnits, type Address } from 'viem';
+import { formatUnits, parseUnits, type Address } from 'viem';
 import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
-import { erc20AllowanceAbi, hyperDuelAbi } from '../config/abis';
+import { erc20AllowanceAbi, erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import {
   hyperDuelContractByChainId,
   tokenIndexByChainId,
   zeroAddress,
 } from '../config/contracts';
-import { formatSpotPriceLabel } from '../utils/format';
+import { formatDurationFromSeconds, formatSpotPriceLabel } from '../utils/format';
 import { emitBalanceRefresh } from '../utils/appEvents';
 import { type MatchCreationMode } from '../types/match';
 
 const buyInRange = {
   min: 10,
   max: 500,
-  step: 5,
+  step: 1,
 };
 
+const durationSliderStepSeconds = 60;
 const durationRange = {
-  min: 1,
-  max: 72,
-  step: 1,
+  min: 60 * 60,
+  max: 72 * 60 * 60,
+  step: durationSliderStepSeconds,
 };
 
 function getErrorText(error: unknown, depth = 0): string {
@@ -58,6 +59,12 @@ function readBigIntLike(value: unknown): bigint {
   return 0n;
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
 export function CreateMatchModal({
   isOpen,
   availableAssets,
@@ -69,7 +76,7 @@ export function CreateMatchModal({
   reservedOpponentAddress,
   onAssetsChange,
   onBuyInChange,
-  selectedDurationHours,
+  selectedDurationSeconds,
   onDurationChange,
   onMatchCreationModeChange,
   onReservedOpponentAddressChange,
@@ -86,7 +93,7 @@ export function CreateMatchModal({
   reservedOpponentAddress: string;
   onAssetsChange: (asset: string) => void;
   onBuyInChange: (buyIn: number) => void;
-  selectedDurationHours: number;
+  selectedDurationSeconds: number;
   onDurationChange: (duration: number) => void;
   onMatchCreationModeChange: (value: MatchCreationMode) => void;
   onReservedOpponentAddressChange: (value: string) => void;
@@ -124,8 +131,7 @@ export function CreateMatchModal({
     () => selectedAssets.map((asset) => tokenIndexMap[asset]).filter((tokenId): tokenId is number => tokenId !== undefined),
     [selectedAssets, tokenIndexMap],
   );
-  const buyInAmount = useMemo(() => parseUnits(selectedBuyIn.toString(), 6), [selectedBuyIn]);
-  const durationInSeconds = useMemo(() => BigInt(selectedDurationHours * 60 * 60), [selectedDurationHours]);
+  const durationInSeconds = useMemo(() => BigInt(selectedDurationSeconds), [selectedDurationSeconds]);
   const trimmedReservedOpponentAddress = reservedOpponentAddress.trim();
   const reservedAddressIsValid = /^0x[a-fA-F0-9]{40}$/.test(trimmedReservedOpponentAddress);
 
@@ -158,6 +164,64 @@ export function CreateMatchModal({
     },
   });
 
+  const { data: buyInTokenDecimalsData } = useReadContract({
+    address: buyInTokenAddress as Address | undefined,
+    abi: erc20MetadataAbi,
+    functionName: 'decimals',
+    query: {
+      enabled: Boolean(isOpen && buyInTokenAddress),
+    },
+  });
+
+  const buyInTokenDecimals = Number(buyInTokenDecimalsData ?? 6);
+
+  const { data: buyInBoundsData } = useReadContracts({
+    contracts: hyperDuelContractAddress
+      ? [
+          {
+            address: hyperDuelContractAddress,
+            chainId,
+            abi: hyperDuelAbi,
+            functionName: 'minBuyIn',
+          },
+          {
+            address: hyperDuelContractAddress,
+            chainId,
+            abi: hyperDuelAbi,
+            functionName: 'maxBuyIn',
+          },
+        ]
+      : [],
+    query: {
+      enabled: Boolean(hyperDuelContractAddress && isOpen),
+    },
+  });
+
+  const buyInRangeFromContract = useMemo(() => {
+    const minBuyInRaw = buyInBoundsData?.[0]?.result;
+    const maxBuyInRaw = buyInBoundsData?.[1]?.result;
+    const minBuyInBaseUnits = readBigIntLike(minBuyInRaw);
+    const maxBuyInBaseUnits = readBigIntLike(maxBuyInRaw);
+
+    if (minBuyInBaseUnits <= 0n || maxBuyInBaseUnits <= 0n || maxBuyInBaseUnits < minBuyInBaseUnits) {
+      return buyInRange;
+    }
+
+    const min = Number(formatUnits(minBuyInBaseUnits, buyInTokenDecimals));
+    const max = Number(formatUnits(maxBuyInBaseUnits, buyInTokenDecimals));
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) {
+      return buyInRange;
+    }
+
+    return {
+      min,
+      max,
+      step: 1,
+    };
+  }, [buyInBoundsData, buyInTokenDecimals]);
+
+  const buyInAmount = useMemo(() => parseUnits(selectedBuyIn.toString(), buyInTokenDecimals), [buyInTokenDecimals, selectedBuyIn]);
+
   const { data: tokenPricesData } = useReadContracts({
     contracts:
       hyperDuelContractAddress && availableAssets.length > 0
@@ -181,7 +245,7 @@ export function CreateMatchModal({
             address: hyperDuelContractAddress,
             chainId,
             abi: hyperDuelAbi,
-            functionName: 'tradingTokens',
+            functionName: 'tradingTokensDecimals',
             args: [tokenIndexMap[asset.label] ?? asset.index],
           }))
         : [],
@@ -189,6 +253,51 @@ export function CreateMatchModal({
       enabled: Boolean(isOpen && hyperDuelContractAddress && availableAssets.length > 0),
     },
   });
+
+  const { data: durationBoundsData } = useReadContracts({
+    contracts: hyperDuelContractAddress
+      ? [
+          {
+            address: hyperDuelContractAddress,
+            chainId,
+            abi: hyperDuelAbi,
+            functionName: 'minDuration',
+          },
+          {
+            address: hyperDuelContractAddress,
+            chainId,
+            abi: hyperDuelAbi,
+            functionName: 'maxDuration',
+          },
+        ]
+      : [],
+    query: {
+      enabled: Boolean(hyperDuelContractAddress && isOpen),
+    },
+  });
+
+  const durationRangeFromContract = useMemo(() => {
+    const minDurationRaw = durationBoundsData?.[0]?.result;
+    const maxDurationRaw = durationBoundsData?.[1]?.result;
+    const minDurationSeconds = readBigIntLike(minDurationRaw);
+    const maxDurationSeconds = readBigIntLike(maxDurationRaw);
+
+    if (minDurationSeconds <= 0n || maxDurationSeconds <= 0n || maxDurationSeconds < minDurationSeconds) {
+      return durationRange;
+    }
+
+    const minSeconds = Number(minDurationSeconds);
+    const maxSeconds = Number(maxDurationSeconds);
+    if (!Number.isFinite(minSeconds) || !Number.isFinite(maxSeconds) || maxSeconds < minSeconds) {
+      return durationRange;
+    }
+
+    return {
+      min: minSeconds,
+      max: maxSeconds,
+      step: durationSliderStepSeconds,
+    };
+  }, [durationBoundsData]);
 
   const spotPriceByAssetLabel = useMemo(() => {
     return availableAssets.reduce<Record<string, bigint | null>>((accumulator, asset, index) => {
@@ -267,7 +376,7 @@ export function CreateMatchModal({
               const rawDecimals = await publicClient.readContract({
                 address: hyperDuelContractAddress,
                 abi: hyperDuelAbi,
-                functionName: 'tradingTokens',
+                functionName: 'tradingTokensDecimals',
                 args: [tokenIndex],
               });
               fallbackDecimals[asset.label] =
@@ -323,6 +432,28 @@ export function CreateMatchModal({
   );
 
   useEffect(() => {
+    if (!isOpen) return;
+    if (selectedBuyIn < buyInRangeFromContract.min) {
+      onBuyInChange(buyInRangeFromContract.min);
+      return;
+    }
+    if (selectedBuyIn > buyInRangeFromContract.max) {
+      onBuyInChange(buyInRangeFromContract.max);
+    }
+  }, [buyInRangeFromContract.max, buyInRangeFromContract.min, isOpen, onBuyInChange, selectedBuyIn]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (selectedDurationSeconds < durationRangeFromContract.min) {
+      onDurationChange(durationRangeFromContract.min);
+      return;
+    }
+    if (selectedDurationSeconds > durationRangeFromContract.max) {
+      onDurationChange(durationRangeFromContract.max);
+    }
+  }, [durationRangeFromContract.max, durationRangeFromContract.min, isOpen, onDurationChange, selectedDurationSeconds]);
+
+  useEffect(() => {
     if (isCreateConfirmed) {
       emitBalanceRefresh();
       onCreated();
@@ -361,6 +492,8 @@ export function CreateMatchModal({
     !hasUnknownAssetSelection &&
     hasEnoughAllowance &&
     (!isReservedMatch || reservedAddressIsValid);
+
+  const selectedDurationMinutes = Math.floor(selectedDurationSeconds / 60);
 
   const approveErrorText =
     actionError ??
@@ -550,16 +683,36 @@ export function CreateMatchModal({
               ) : null}
               <div className="mt-3 border border-[#b9b9b9] bg-[#f9f9f9] px-3 py-3">
                 <div className="mb-2 flex items-center justify-between font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5f5f5f]">
-                  <span>{buyInRange.min}</span>
-                  <span className="text-sm text-[#3f3f3f]">{selectedBuyIn} USDC</span>
-                  <span>{buyInRange.max}</span>
+                  <span>{buyInRangeFromContract.min}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm text-[#3f3f3f]">{selectedBuyIn} USDC</span>
+                    <div className="ml-1 inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="h-6 w-6 border border-[#b9b9b9] bg-[#f2f2f2] p-0 font-mono text-[14px] font-black leading-none text-[#4f4f4f] hover:bg-[#e8e8e8] disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => onBuyInChange(clampNumber(selectedBuyIn - 1, buyInRangeFromContract.min, buyInRangeFromContract.max))}
+                        disabled={selectedBuyIn <= buyInRangeFromContract.min}
+                      >
+                        -
+                      </button>
+                      <button
+                        type="button"
+                        className="h-6 w-6 border border-[#b9b9b9] bg-[#f2f2f2] p-0 font-mono text-[14px] font-black leading-none text-[#4f4f4f] hover:bg-[#e8e8e8] disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => onBuyInChange(clampNumber(selectedBuyIn + 1, buyInRangeFromContract.min, buyInRangeFromContract.max))}
+                        disabled={selectedBuyIn >= buyInRangeFromContract.max}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <span>{buyInRangeFromContract.max}</span>
                 </div>
                 <input
                   className="slider h-3 w-full cursor-pointer appearance-none border border-[#b9b9b9] bg-[#e8e8e8]"
                   type="range"
-                  min={buyInRange.min}
-                  max={buyInRange.max}
-                  step={buyInRange.step}
+                  min={buyInRangeFromContract.min}
+                  max={buyInRangeFromContract.max}
+                  step={buyInRangeFromContract.step}
                   value={selectedBuyIn}
                   onChange={(event) => onBuyInChange(Number(event.target.value))}
                 />
@@ -570,17 +723,37 @@ export function CreateMatchModal({
               <div className="font-mono text-sm font-black uppercase tracking-[0.08em] text-[#4f4f4f]">Duration</div>
               <div className="mt-3 border border-[#b9b9b9] bg-[#f9f9f9] px-3 py-3">
                 <div className="mb-2 flex items-center justify-between font-mono text-xs font-black uppercase tracking-[0.08em] text-[#5f5f5f]">
-                  <span>{durationRange.min}</span>
-                  <span className="text-sm text-[#3f3f3f]">{selectedDuration}</span>
-                  <span>{durationRange.max}</span>
+                  <span>{formatDurationFromSeconds(BigInt(durationRangeFromContract.min))}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm text-[#3f3f3f]">{selectedDuration}</span>
+                    <div className="ml-1 inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="h-6 w-6 border border-[#b9b9b9] bg-[#f2f2f2] p-0 font-mono text-[14px] font-black leading-none text-[#4f4f4f] hover:bg-[#e8e8e8] disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => onDurationChange(clampNumber((selectedDurationMinutes - 1) * 60, durationRangeFromContract.min, durationRangeFromContract.max))}
+                        disabled={selectedDurationSeconds <= durationRangeFromContract.min}
+                      >
+                        -
+                      </button>
+                      <button
+                        type="button"
+                        className="h-6 w-6 border border-[#b9b9b9] bg-[#f2f2f2] p-0 font-mono text-[14px] font-black leading-none text-[#4f4f4f] hover:bg-[#e8e8e8] disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => onDurationChange(clampNumber((selectedDurationMinutes + 1) * 60, durationRangeFromContract.min, durationRangeFromContract.max))}
+                        disabled={selectedDurationSeconds >= durationRangeFromContract.max}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <span>{formatDurationFromSeconds(BigInt(durationRangeFromContract.max))}</span>
                 </div>
                 <input
                   className="slider h-3 w-full cursor-pointer appearance-none border border-[#b9b9b9] bg-[#e8e8e8]"
                   type="range"
-                  min={durationRange.min}
-                  max={durationRange.max}
-                  step={durationRange.step}
-                  value={selectedDurationHours}
+                  min={durationRangeFromContract.min}
+                  max={durationRangeFromContract.max}
+                  step={durationRangeFromContract.step}
+                  value={selectedDurationSeconds}
                   onChange={(event) => onDurationChange(Number(event.target.value))}
                 />
               </div>
