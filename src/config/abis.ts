@@ -82,6 +82,13 @@ export const hyperDuelAbi = [
   },
   {
     type: 'function',
+    name: 'accruedPlatformFee',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'minBuyIn',
     stateMutability: 'view',
     inputs: [],

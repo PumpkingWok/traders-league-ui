@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnits, parseUnits, type Address } from 'viem';
 import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { erc20AllowanceAbi, erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
@@ -8,7 +8,7 @@ import {
   zeroAddress,
 } from '../config/contracts';
 import { formatDurationFromSeconds, formatSpotPriceLabel } from '../utils/format';
-import { emitBalanceRefresh } from '../utils/appEvents';
+import { emitBalanceRefresh, emitMatchCreated } from '../utils/appEvents';
 import { type MatchCreationMode } from '../types/match';
 
 const buyInRange = {
@@ -43,6 +43,15 @@ function isUserRejectedError(error: unknown): boolean {
     text.includes('denied transaction signature') ||
     text.includes('rejected the request') ||
     text.includes('request rejected')
+  );
+}
+
+function isInternalGasEstimationNoise(error: unknown): boolean {
+  const text = getErrorText(error).toLowerCase();
+  return (
+    text.includes("cannot destructure property 'gaslimit'") ||
+    text.includes('an internal error was received') ||
+    text.includes('version: viem@')
   );
 }
 
@@ -108,6 +117,7 @@ export function CreateMatchModal({
   const [fallbackSpotByAssetLabel, setFallbackSpotByAssetLabel] = useState<Record<string, bigint | null>>({});
   const [fallbackDecimalsByAssetLabel, setFallbackDecimalsByAssetLabel] = useState<Record<string, number | null>>({});
   const [actionError, setActionError] = useState<string | null>(null);
+  const handledCreateTxHashRef = useRef<string | null>(null);
   const {
     data: createMatchHash,
     error: createMatchError,
@@ -454,12 +464,37 @@ export function CreateMatchModal({
   }, [durationRangeFromContract.max, durationRangeFromContract.min, isOpen, onDurationChange, selectedDurationSeconds]);
 
   useEffect(() => {
-    if (isCreateConfirmed) {
+    if (!isOpen) return;
+    if (!isCreateConfirmed) return;
+    if (!createMatchHash) return;
+    if (handledCreateTxHashRef.current === createMatchHash) return;
+    handledCreateTxHashRef.current = createMatchHash;
+
+    const notifyAndClose = async () => {
+      if (publicClient && hyperDuelContractAddress) {
+        try {
+          const receipt = await publicClient.getTransactionReceipt({ hash: createMatchHash });
+          const contractAddress = hyperDuelContractAddress.toLowerCase();
+          const hasContractLog = receipt.logs.some((log) => log.address.toLowerCase() === contractAddress);
+          if (hasContractLog) {
+            emitMatchCreated({
+              chainId,
+              contractAddress: hyperDuelContractAddress,
+              transactionHash: createMatchHash,
+            });
+          }
+        } catch {
+          // Keep UX flow resilient even if receipt inspection fails.
+        }
+      }
+
       emitBalanceRefresh();
       onCreated();
       onClose();
-    }
-  }, [isCreateConfirmed, onClose, onCreated]);
+    };
+
+    void notifyAndClose();
+  }, [chainId, createMatchHash, hyperDuelContractAddress, isCreateConfirmed, isOpen, onClose, onCreated, publicClient]);
 
   useEffect(() => {
     if (!isApproveConfirmed) return;
@@ -506,6 +541,8 @@ export function CreateMatchModal({
   const createErrorText = createMatchError
     ? isUserRejectedError(createMatchError)
       ? 'Create match transaction cancelled in wallet.'
+      : isInternalGasEstimationNoise(createMatchError)
+        ? 'Could not prepare transaction. Please retry once.'
       : getErrorText(createMatchError) || 'Create match transaction failed.'
     : null;
 
@@ -541,6 +578,8 @@ export function CreateMatchModal({
     const playerB = matchCreationMode === 'reserved' ? (trimmedReservedOpponentAddress as Address) : zeroAddress;
 
     writeCreateMatch({
+      chainId,
+      account: address as Address,
       address: hyperDuelContractAddress,
       abi: hyperDuelAbi,
       functionName: 'createMatch',

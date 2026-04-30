@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnits, type Address } from 'viem';
 import { useAccount, useChainId, usePublicClient, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { erc20MetadataAbi, hyperDuelAbi } from '../config/abis';
 import { hyperDuelContractByChainId, tokenIndexByChainId, zeroAddress } from '../config/contracts';
 import { getGoldskySubgraphUrl } from '../config/subgraph';
 import { compactNumber, formatAddress, formatDurationFromSeconds } from '../utils/format';
-import { emitBalanceRefresh } from '../utils/appEvents';
+import { addMatchCreatedListener, emitBalanceRefresh } from '../utils/appEvents';
 import { MatchRow } from '../components/MatchRow';
 import { JoinMatchModal } from '../components/JoinMatchModal';
 import { ResolveMatchModal } from '../components/ResolveMatchModal';
@@ -216,6 +216,7 @@ export default function MatchesPage({
   const [concludingMatchId, setConcludingMatchId] = useState<bigint | null>(null);
   const [unjoiningMatchId, setUnjoiningMatchId] = useState<bigint | null>(null);
   const [isPrizeInfoOpen, setIsPrizeInfoOpen] = useState(false);
+  const pendingMatchRefreshTimeoutsRef = useRef<number[]>([]);
   const hideCountdownAndWinner = matchFilter === 'to-start';
   const hideStatus = matchFilter === 'finish' || matchFilter === 'to-start' || matchFilter === 'current';
   const hideAction = matchFilter === 'finish' || matchFilter === 'current' || matchFilter === 'all';
@@ -333,6 +334,32 @@ export default function MatchesPage({
     setSelectedMatchToUnjoin(null);
     setMatchesError(unjoinMatchError.message);
   }, [unjoinMatchError]);
+
+  useEffect(() => {
+    return () => {
+      pendingMatchRefreshTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      pendingMatchRefreshTimeoutsRef.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hyperDuelContractAddress) return;
+    return addMatchCreatedListener(({ chainId: eventChainId, contractAddress }) => {
+      if (eventChainId !== chainId) return;
+      if (contractAddress.toLowerCase() !== hyperDuelContractAddress.toLowerCase()) return;
+
+      pendingMatchRefreshTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      pendingMatchRefreshTimeoutsRef.current = [];
+
+      const retryDelaysMs = [0, 1200, 2500, 4500, 7000];
+      retryDelaysMs.forEach((delayMs) => {
+        const timeoutId = window.setTimeout(() => {
+          setMatchesReloadNonce((value) => value + 1);
+        }, delayMs);
+        pendingMatchRefreshTimeoutsRef.current.push(timeoutId);
+      });
+    });
+  }, [chainId, hyperDuelContractAddress]);
 
   useEffect(() => {
     if (!publicClient || !hyperDuelContractAddress || latestMatchIdData === undefined) {

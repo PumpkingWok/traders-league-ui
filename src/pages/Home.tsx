@@ -77,6 +77,14 @@ export default function HomePage({
       enabled: Boolean(buyInTokenAddress && hyperDuelContractAddress),
     },
   });
+  const { data: accruedPlatformFeeData } = useReadContract({
+    address: hyperDuelContractAddress,
+    abi: hyperDuelAbi,
+    functionName: 'accruedPlatformFee',
+    query: {
+      enabled: Boolean(hyperDuelContractAddress),
+    },
+  });
 
   useEffect(() => {
     if (!publicClient || !hyperDuelContractAddress || latestMatchIdData === undefined) {
@@ -140,8 +148,10 @@ export default function HomePage({
       {
         label: 'Funds In Game',
         value: (() => {
-          const raw = fundsInGameRawData as bigint | undefined;
-          if (raw === undefined) return '-';
+          const rawBalance = fundsInGameRawData as bigint | undefined;
+          const accruedPlatformFee = (accruedPlatformFeeData as bigint | undefined) ?? 0n;
+          if (rawBalance === undefined) return '-';
+          const raw = rawBalance > accruedPlatformFee ? rawBalance - accruedPlatformFee : 0n;
           const decimals = Number(buyInTokenDecimalsData ?? 6);
           const numeric = Number(formatUnits(raw, decimals));
           if (!Number.isFinite(numeric)) return `$${formatUnits(raw, decimals)}`;
@@ -153,7 +163,7 @@ export default function HomePage({
         icon: '04',
       },
     ],
-    [buyInTokenDecimalsData, fundsInGameRawData, statsCounts.completed, statsCounts.live, statsCounts.open],
+    [accruedPlatformFeeData, buyInTokenDecimalsData, fundsInGameRawData, statsCounts.completed, statsCounts.live, statsCounts.open],
   );
 
   return (
